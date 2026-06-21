@@ -1,0 +1,8 @@
+{
+  "name": "Universe POS",
+  "description": "An advanced, ruggedized calculator simulation featuring an integrated thermal printer receipt and mobile export utility, designed for remote field operations.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none">
+  <rect width="512" height="512" fill="#111111" rx="100"/>
+  <text x="256" y="220" font-family="monospace" font-size="200" font-weight="bold" fill="#3cc366" text-anchor="middle" dominant-baseline="middle">U</text>
+  <text x="256" y="380" font-family="sans-serif" font-size="70" font-weight="bold" fill="#ffffff" text-anchor="middle">UPOS</text>
+</svg>

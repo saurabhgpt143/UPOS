@@ -1,0 +1,16 @@
+{
+  "name": "Universe POS",
+  "short_name": "UPOS",
+  "description": "Mobile Point of Sale and Calculator",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#111111",
+  "theme_color": "#111111",
+  "icons": [
+    {
+      "src": "/icon-512.svg",
+      "sizes": "192x192 512x512",
+      "type": "image/svg+xml"
+    }
+  ]
+}
