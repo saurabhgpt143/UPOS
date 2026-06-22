@@ -68,13 +68,13 @@ export interface POSKeypadProps {
 export function POSKeypad({ onKeyPress, mode }: POSKeypadProps) {
   return (
     <div className="w-full flex flex-col bg-black px-4 sm:px-6 pb-6 gap-3 shrink">
-      {/* POS Action Strip (Scrollable) */}
-      <div className="flex gap-2 lg:gap-4 overflow-x-auto no-scrollbar py-2 lg:py-4 shrink-0 lg:justify-center">
+      {/* POS Action Strip (Scrollable on mobile, wrapped on desktop) */}
+      <div className="flex gap-2 lg:gap-2 lg:gap-y-3 lg:flex-wrap overflow-x-auto lg:overflow-visible no-scrollbar py-2 lg:py-4 shrink-0 lg:justify-center">
         {PAYMENT_KEYS.map((k) => (
           <button
             key={k.label}
             onClick={() => onKeyPress({ ...k, type: "silicone" })}
-            className="shrink-0 font-medium text-sm lg:text-base px-4 py-2 lg:px-6 lg:py-3 rounded-full bg-[#1e1e1e] text-[#3cc366] active:bg-[#2c2c2c] transition-colors"
+            className="shrink-0 font-medium text-sm px-4 py-2 lg:px-4 lg:py-2 rounded-full bg-[#1e1e1e] text-[#3cc366] active:bg-[#2c2c2c] transition-colors"
           >
             {k.label}
           </button>
@@ -83,7 +83,7 @@ export function POSKeypad({ onKeyPress, mode }: POSKeypadProps) {
           <button
             key={k.label}
             onClick={() => onKeyPress({ ...k, type: "silicone" })}
-            className="shrink-0 font-medium text-sm lg:text-base px-4 py-2 lg:px-6 lg:py-3 rounded-full bg-[#1e1e1e] text-white active:bg-[#2c2c2c] transition-colors"
+            className="shrink-0 font-medium text-sm px-4 py-2 lg:px-4 lg:py-2 rounded-full bg-[#1e1e1e] text-white active:bg-[#2c2c2c] transition-colors"
           >
             {k.label}
           </button>
