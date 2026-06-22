@@ -79,7 +79,7 @@ export function POSDevice() {
       {/* Screen area */}
       <div
         className={cn(
-          "w-full md:w-[45%] lg:w-[50%] pt-4 sm:pt-10 md:pt-6 md:pb-6 lg:pt-12 px-4 lg:px-12 mb-2 md:mb-0 relative z-10 flex flex-col justify-end md:justify-center transition-all duration-300 flex-1 min-h-0",
+          "w-full md:w-[45%] lg:w-[60%] xl:w-[65%] pt-4 sm:pt-10 md:pt-6 md:pb-6 lg:pt-12 px-4 lg:px-16 xl:px-24 mb-2 md:mb-0 relative z-10 flex flex-col justify-end md:justify-center transition-all duration-300 flex-1 min-h-0",
         )}
       >
         <POSScreen
@@ -108,7 +108,7 @@ export function POSDevice() {
       {/* Keypad Area */}
       <div
         className={cn(
-          "w-full md:w-[55%] lg:w-[50%] relative z-10 bg-black transition-all duration-300 flex-shrink-0 md:flex md:items-center md:justify-center lg:py-8",
+          "w-full md:w-[55%] lg:w-[40%] xl:w-[35%] relative z-10 bg-black transition-all duration-300 flex-shrink-0 md:flex md:items-center md:justify-center lg:py-8",
         )}
       >
         <POSKeypad onKeyPress={handleKeyPress} mode={pos.screenMode} />

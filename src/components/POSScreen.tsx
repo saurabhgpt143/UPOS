@@ -145,10 +145,10 @@ export function POSScreen({
             >
               <div
                 className={cn(
-                  "text-2xl font-light text-gray-400 mb-2 break-all text-right w-full transition-all cursor-pointer",
+                  "font-light text-gray-400 mb-2 break-all text-right w-full transition-all cursor-pointer",
                   isDisplayExpanded
-                    ? "max-h-16 overflow-y-auto"
-                    : "h-8 overflow-hidden",
+                    ? "text-xl sm:text-2xl lg:text-3xl max-h-24 lg:max-h-48 overflow-y-auto history-scroll"
+                    : "text-2xl lg:text-4xl h-8 lg:h-12 overflow-hidden",
                 )}
               >
                 {expression || "\u00A0"}
@@ -157,8 +157,8 @@ export function POSScreen({
                 className={cn(
                   "font-light text-white text-right cursor-pointer transition-all leading-none",
                   isDisplayExpanded
-                    ? "text-3xl sm:text-4xl lg:text-5xl break-all overflow-y-auto max-h-24 lg:max-h-48 history-scroll"
-                    : "text-5xl sm:text-6xl lg:text-[80px] lg:leading-tight tracking-tight truncate w-full",
+                    ? "text-3xl sm:text-4xl lg:text-5xl xl:text-6xl break-all overflow-y-auto max-h-24 lg:max-h-[60vh] history-scroll"
+                    : "text-5xl sm:text-6xl lg:text-[100px] xl:text-[140px] lg:leading-tight xl:leading-none tracking-tight truncate w-full",
                 )}
               >
                 {displayValue}
@@ -173,7 +173,7 @@ export function POSScreen({
               Scan to Pay UPI
             </div>
             <div className="text-xl font-bold text-white mb-2">₹{qrAmount}</div>
-            <div className="relative group w-[85%] max-w-[180px] mx-auto aspect-square flex items-center justify-center">
+            <div className="relative group w-[85%] max-w-[180px] lg:max-w-[300px] xl:max-w-[360px] mx-auto aspect-square flex items-center justify-center">
               {customQrUrls.length > 0 && (
                 <button
                   onClick={(e) => {
@@ -181,9 +181,9 @@ export function POSScreen({
                     onCurrentQrIndexChange(Math.max(0, currentQrIndex - 1));
                   }}
                   disabled={currentQrIndex === 0}
-                  className="absolute -left-6 z-10 bg-white shadow rounded-full p-1 border text-gray-500 disabled:opacity-30 disabled:cursor-not-allowed"
+                  className="absolute -left-6 lg:-left-12 z-10 bg-white shadow rounded-full p-1 lg:p-2 border text-gray-500 disabled:opacity-30 disabled:cursor-not-allowed"
                 >
-                  <ChevronLeft className="w-4 h-4" />
+                  <ChevronLeft className="w-4 h-4 lg:w-6 lg:h-6" />
                 </button>
               )}
 
@@ -277,9 +277,9 @@ export function POSScreen({
                     );
                   }}
                   disabled={currentQrIndex === customQrUrls.length - 1}
-                  className="absolute -right-6 z-10 bg-white shadow rounded-full p-1 border text-gray-500 disabled:opacity-30 disabled:cursor-not-allowed"
+                  className="absolute -right-6 lg:-right-12 z-10 bg-white shadow rounded-full p-1 lg:p-2 border text-gray-500 disabled:opacity-30 disabled:cursor-not-allowed"
                 >
-                  <ChevronRight className="w-4 h-4" />
+                  <ChevronRight className="w-4 h-4 lg:w-6 lg:h-6" />
                 </button>
               )}
             </div>
