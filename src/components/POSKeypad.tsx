@@ -69,12 +69,12 @@ export function POSKeypad({ onKeyPress, mode }: POSKeypadProps) {
   return (
     <div className="w-full flex flex-col bg-black px-4 sm:px-6 pb-6 gap-3 shrink">
       {/* POS Action Strip (Scrollable) */}
-      <div className="flex gap-2 overflow-x-auto no-scrollbar py-2 shrink-0">
+      <div className="flex gap-2 lg:gap-4 overflow-x-auto no-scrollbar py-2 lg:py-4 shrink-0 lg:justify-center">
         {PAYMENT_KEYS.map((k) => (
           <button
             key={k.label}
             onClick={() => onKeyPress({ ...k, type: "silicone" })}
-            className="shrink-0 font-medium text-sm px-4 py-2 rounded-full bg-[#1e1e1e] text-[#3cc366] active:bg-[#2c2c2c] transition-colors"
+            className="shrink-0 font-medium text-sm lg:text-base px-4 py-2 lg:px-6 lg:py-3 rounded-full bg-[#1e1e1e] text-[#3cc366] active:bg-[#2c2c2c] transition-colors"
           >
             {k.label}
           </button>
@@ -83,7 +83,7 @@ export function POSKeypad({ onKeyPress, mode }: POSKeypadProps) {
           <button
             key={k.label}
             onClick={() => onKeyPress({ ...k, type: "silicone" })}
-            className="shrink-0 font-medium text-sm px-4 py-2 rounded-full bg-[#1e1e1e] text-white active:bg-[#2c2c2c] transition-colors"
+            className="shrink-0 font-medium text-sm lg:text-base px-4 py-2 lg:px-6 lg:py-3 rounded-full bg-[#1e1e1e] text-white active:bg-[#2c2c2c] transition-colors"
           >
             {k.label}
           </button>
@@ -100,7 +100,7 @@ export function POSKeypad({ onKeyPress, mode }: POSKeypadProps) {
       {/* Main Numpad */}
       <div
         className={cn(
-          "grid grid-cols-4 gap-2 sm:gap-4 justify-items-center max-w-[320px] mx-auto w-full transition-all shrink-0",
+          "grid grid-cols-4 gap-2 sm:gap-4 lg:gap-6 justify-items-center max-w-[320px] lg:max-w-[480px] mx-auto w-full transition-all shrink-0",
           mode !== "CALC" ? "hidden" : "flex-1",
         )}
       >
@@ -111,18 +111,18 @@ export function POSKeypad({ onKeyPress, mode }: POSKeypadProps) {
               onClick={() => onKeyPress({ ...k, type: "plastic" })}
               className={cn(
                 "relative flex items-center justify-center font-normal rounded-full transition-colors active:scale-[0.95]",
-                "w-[60px] h-[60px] sm:w-[72px] sm:h-[72px]",
+                "w-[60px] h-[60px] sm:w-[72px] sm:h-[72px] lg:w-[96px] lg:h-[96px]",
                 k.type === "num"
-                  ? "bg-[#1e1e1e] text-[#eeeeee] text-2xl sm:text-3xl active:bg-[#2c2c2c]"
+                  ? "bg-[#1e1e1e] text-[#eeeeee] text-2xl sm:text-3xl lg:text-4xl active:bg-[#2c2c2c]"
                   : k.type === "op"
-                    ? "bg-[#1e1e1e] text-[#3cc366] text-2xl sm:text-3xl active:bg-[#2c2c2c]"
+                    ? "bg-[#1e1e1e] text-[#3cc366] text-2xl sm:text-3xl lg:text-4xl active:bg-[#2c2c2c]"
                     : k.type === "ac"
-                      ? "bg-[#1e1e1e] text-[#ff4c4c] text-2xl sm:text-3xl active:bg-[#2c2c2c]"
+                      ? "bg-[#1e1e1e] text-[#ff4c4c] text-2xl sm:text-3xl lg:text-4xl active:bg-[#2c2c2c]"
                       : k.type === "eq"
-                        ? "bg-[#3cc366] text-black text-3xl sm:text-4xl pb-1 active:bg-[#32a454]"
+                        ? "bg-[#3cc366] text-black text-3xl sm:text-4xl lg:text-5xl pb-1 active:bg-[#32a454]"
                         : "bg-[#1e1e1e] text-white",
-                k.label === "⌫" && "text-xl sm:text-2xl",
-                k.label === "00" && "text-xl sm:text-2xl",
+                k.label === "⌫" && "text-xl sm:text-2xl lg:text-3xl",
+                k.label === "00" && "text-xl sm:text-2xl lg:text-3xl",
               )}
             >
               {k.label}

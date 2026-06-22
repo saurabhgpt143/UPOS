@@ -101,8 +101,8 @@ export function POSScreen({
       className={cn(
         "w-full bg-black flex flex-col relative transition-all duration-300",
         mode === "CALC"
-          ? "min-h-[160px] flex-1 sm:flex-none sm:h-[260px] md:h-full md:flex-1"
-          : "flex-1 sm:h-auto md:h-full",
+          ? "min-h-[160px] flex-1 sm:flex-none sm:h-[260px] md:h-full lg:h-full md:flex-1"
+          : "flex-1 sm:h-auto md:h-full lg:h-full",
       )}
     >
       {/* Screen Content Wrapper */}
@@ -157,8 +157,8 @@ export function POSScreen({
                 className={cn(
                   "font-light text-white text-right cursor-pointer transition-all leading-none",
                   isDisplayExpanded
-                    ? "text-3xl sm:text-4xl break-all overflow-y-auto max-h-24 history-scroll"
-                    : "text-5xl sm:text-6xl tracking-tight truncate w-full",
+                    ? "text-3xl sm:text-4xl lg:text-5xl break-all overflow-y-auto max-h-24 lg:max-h-48 history-scroll"
+                    : "text-5xl sm:text-6xl lg:text-[80px] lg:leading-tight tracking-tight truncate w-full",
                 )}
               >
                 {displayValue}
@@ -512,37 +512,37 @@ export function POSScreen({
         )}
 
         {mode === "DASHBOARD" && (
-          <div className="flex-1 flex flex-col bg-black p-2 overflow-y-auto">
-            <div className="text-xs font-bold text-gray-500 mb-2 text-center uppercase tracking-wider">
+          <div className="flex-1 flex flex-col bg-black p-2 lg:p-6 overflow-y-auto">
+            <div className="text-xs lg:text-sm font-bold text-gray-500 mb-2 lg:mb-4 text-center uppercase tracking-wider">
               Business Summary
             </div>
 
-            <div className="grid grid-cols-2 gap-2 mb-2">
-              <div className="bg-[#1e1e1e] p-2 rounded border border-[#333]">
-                <div className="text-[10px] font-bold text-[#3cc366]">
+            <div className="grid grid-cols-2 gap-2 lg:gap-4 mb-2 lg:mb-4">
+              <div className="bg-[#1e1e1e] p-2 lg:p-4 rounded border border-[#333]">
+                <div className="text-[10px] lg:text-xs font-bold text-[#3cc366] mb-1">
                   Total Sales
                 </div>
-                <div className="text-sm font-bold text-white">
+                <div className="text-sm lg:text-2xl font-bold text-white">
                   ₹{stats.sales}
                 </div>
               </div>
-              <div className="bg-[#1e1e1e] p-2 rounded border border-[#333]">
-                <div className="text-[10px] font-bold text-red-500">
+              <div className="bg-[#1e1e1e] p-2 lg:p-4 rounded border border-[#333]">
+                <div className="text-[10px] lg:text-xs font-bold text-red-500 mb-1">
                   Expenses
                 </div>
-                <div className="text-sm font-bold text-white">
+                <div className="text-sm lg:text-2xl font-bold text-white">
                   ₹{stats.expenses}
                 </div>
               </div>
             </div>
 
-            <div className="bg-[#1e1e1e] p-2 rounded border border-[#333] flex justify-between items-center mb-3">
-              <div className="text-[10px] font-bold text-blue-400">
+            <div className="bg-[#1e1e1e] p-2 lg:p-4 rounded border border-[#333] flex justify-between items-center mb-3 lg:mb-6">
+              <div className="text-[10px] lg:text-sm font-bold text-blue-400">
                 Net Profit
               </div>
               <div
                 className={cn(
-                  "text-sm font-bold",
+                  "text-sm lg:text-3xl font-bold",
                   stats.profit >= 0 ? "text-white" : "text-red-400",
                 )}
               >
@@ -550,18 +550,18 @@ export function POSScreen({
               </div>
             </div>
 
-            <div className="text-[10px] font-bold text-gray-600 mb-1 border-b border-[#333] pb-1">
+            <div className="text-[10px] lg:text-sm font-bold text-gray-600 mb-1 lg:mb-3 border-b border-[#333] pb-1 lg:pb-2">
               Recent Transactions
             </div>
-            <div className="space-y-1">
+            <div className="space-y-1 lg:space-y-2">
               {transactions.slice(0, 3).map((tx) => (
                 <div
                   key={tx.id}
-                  className="flex justify-between items-center text-[10px] bg-[#1e1e1e] p-1 rounded shadow-sm border border-[#333]"
+                  className="flex justify-between items-center text-[10px] lg:text-sm bg-[#1e1e1e] p-1 lg:p-3 rounded shadow-sm border border-[#333]"
                 >
                   <span
                     className={cn(
-                      "font-bold px-1 rounded text-black",
+                      "font-bold px-1 lg:px-2 py-0.5 rounded text-black",
                       tx.type === "SALE" || tx.type === "BILL"
                         ? "bg-[#3cc366]"
                         : "bg-red-400",
@@ -569,22 +569,22 @@ export function POSScreen({
                   >
                     {tx.type} ({tx.method})
                   </span>
-                  <div className="flex items-center gap-2">
-                    <span className="font-mono font-bold text-gray-300">
+                  <div className="flex items-center gap-2 lg:gap-4">
+                    <span className="font-mono font-bold text-gray-300 lg:text-base">
                       ₹{tx.amount}
                     </span>
                     <button
                       onClick={() => setPreviewPrintInfo({ type: "tx", tx })}
-                      className="text-gray-400 hover:text-white transition-colors bg-[#2c2c2c] rounded p-1 active:bg-[#444]"
+                      className="text-gray-400 hover:text-white transition-colors bg-[#2c2c2c] rounded p-1 lg:p-2 active:bg-[#444]"
                       title="Print Preview / Print"
                     >
-                      <Printer className="w-3 h-3" />
+                      <Printer className="w-3 h-3 lg:w-4 lg:h-4" />
                     </button>
                   </div>
                 </div>
               ))}
               {transactions.length === 0 && (
-                <div className="text-center text-[10px] text-gray-600 py-2">
+                <div className="text-center text-[10px] lg:text-sm text-gray-600 py-2 lg:py-4">
                   No transactions
                 </div>
               )}
