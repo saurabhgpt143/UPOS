@@ -101,8 +101,8 @@ export function POSScreen({
       className={cn(
         "w-full bg-black flex flex-col relative transition-all duration-300",
         mode === "CALC"
-          ? "min-h-[160px] flex-1 sm:flex-none sm:h-[260px]"
-          : "flex-1 sm:h-auto",
+          ? "min-h-[160px] flex-1 sm:flex-none sm:h-[260px] md:h-full md:flex-1"
+          : "flex-1 sm:h-auto md:h-full",
       )}
     >
       {/* Screen Content Wrapper */}
