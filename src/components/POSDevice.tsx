@@ -108,10 +108,12 @@ export function POSDevice() {
       {/* Keypad Area */}
       <div
         className={cn(
-          "w-full md:w-[55%] lg:w-[40%] xl:w-[35%] relative z-10 bg-black transition-all duration-300 flex-shrink-0 md:flex md:items-center md:justify-center lg:py-8",
+          "w-full md:w-[55%] lg:w-[40%] xl:w-[35%] relative z-10 bg-black transition-all duration-300 flex-shrink-0 lg:py-8 overflow-y-auto no-scrollbar",
         )}
       >
-        <POSKeypad onKeyPress={handleKeyPress} mode={pos.screenMode} />
+        <div className="min-h-full flex flex-col justify-center">
+          <POSKeypad onKeyPress={handleKeyPress} mode={pos.screenMode} />
+        </div>
       </div>
     </div>
   );
