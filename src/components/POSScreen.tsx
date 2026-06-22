@@ -101,7 +101,7 @@ export function POSScreen({
       className={cn(
         "w-full bg-black flex flex-col relative transition-all duration-300",
         mode === "CALC"
-          ? "h-[220px] sm:h-[260px] flex-shrink-0"
+          ? "min-h-[160px] flex-1 sm:flex-none sm:h-[260px]"
           : "flex-1 sm:h-auto",
       )}
     >
@@ -157,8 +157,8 @@ export function POSScreen({
                 className={cn(
                   "font-light text-white text-right cursor-pointer transition-all leading-none",
                   isDisplayExpanded
-                    ? "text-4xl break-all overflow-y-auto max-h-24 history-scroll"
-                    : "text-6xl tracking-tight truncate w-full",
+                    ? "text-3xl sm:text-4xl break-all overflow-y-auto max-h-24 history-scroll"
+                    : "text-5xl sm:text-6xl tracking-tight truncate w-full",
                 )}
               >
                 {displayValue}

@@ -100,7 +100,7 @@ export function POSKeypad({ onKeyPress, mode }: POSKeypadProps) {
       {/* Main Numpad */}
       <div
         className={cn(
-          "grid grid-cols-4 gap-3 sm:gap-4 justify-items-center max-w-[320px] mx-auto w-full transition-all shrink-0",
+          "grid grid-cols-4 gap-2 sm:gap-4 justify-items-center max-w-[320px] mx-auto w-full transition-all shrink-0",
           mode !== "CALC" ? "hidden" : "flex-1",
         )}
       >
@@ -111,18 +111,18 @@ export function POSKeypad({ onKeyPress, mode }: POSKeypadProps) {
               onClick={() => onKeyPress({ ...k, type: "plastic" })}
               className={cn(
                 "relative flex items-center justify-center font-normal rounded-full transition-colors active:scale-[0.95]",
-                "w-16 h-16 sm:w-[72px] sm:h-[72px]",
+                "w-[60px] h-[60px] sm:w-[72px] sm:h-[72px]",
                 k.type === "num"
-                  ? "bg-[#1e1e1e] text-[#eeeeee] text-3xl active:bg-[#2c2c2c]"
+                  ? "bg-[#1e1e1e] text-[#eeeeee] text-2xl sm:text-3xl active:bg-[#2c2c2c]"
                   : k.type === "op"
-                    ? "bg-[#1e1e1e] text-[#3cc366] text-3xl active:bg-[#2c2c2c]"
+                    ? "bg-[#1e1e1e] text-[#3cc366] text-2xl sm:text-3xl active:bg-[#2c2c2c]"
                     : k.type === "ac"
-                      ? "bg-[#1e1e1e] text-[#ff4c4c] text-3xl active:bg-[#2c2c2c]"
+                      ? "bg-[#1e1e1e] text-[#ff4c4c] text-2xl sm:text-3xl active:bg-[#2c2c2c]"
                       : k.type === "eq"
-                        ? "bg-[#3cc366] text-black text-4xl pb-1 active:bg-[#32a454]"
+                        ? "bg-[#3cc366] text-black text-3xl sm:text-4xl pb-1 active:bg-[#32a454]"
                         : "bg-[#1e1e1e] text-white",
-                k.label === "⌫" && "text-2xl",
-                k.label === "00" && "text-2xl",
+                k.label === "⌫" && "text-xl sm:text-2xl",
+                k.label === "00" && "text-xl sm:text-2xl",
               )}
             >
               {k.label}
