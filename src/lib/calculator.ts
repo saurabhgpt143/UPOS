@@ -2,12 +2,14 @@ export function evaluateExpression(expression: string): string {
   try {
     // Replace visual operators with JS operators
     let sanitized = expression
-      .replace(/Ã/g, '*')
-      .replace(/Ã·/g, '/')
-      .replace(/â/g, '-');
+      .replace(/×/g, '*')
+      .replace(/÷/g, '/')
+      .replace(/−/g, '-');
       
-    // Handle percentages ending the expression: e.g., "50+50%" -> "50+(50*0.5)"
-    // Basic implementation: replace "X%" with "(X/100)"
+    // Handle A + B% or A - B% (standard calculator logic)
+    sanitized = sanitized.replace(/(\d+(?:\.\d+)?)\s*([\+\-])\s*(\d+(?:\.\d+)?)%/g, '$1$2($1*$3/100)');
+    
+    // Handle standalone percentages: e.g., "50*50%" -> "50*(50/100)"
     sanitized = sanitized.replace(/([0-9.]+)%/g, '($1/100)');
 
     // Very basic safe-ish evaluation for strict math expressions

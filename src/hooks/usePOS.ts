@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo, useRef } from "react";
 import { Transaction, ScreenMode } from "../types";
 import { evaluateExpression } from "../lib/calculator";
 
@@ -21,6 +21,7 @@ export function usePOS() {
 
   const [shouldResetDisplay, setShouldResetDisplay] = useState(false);
   const [transactionId, setTransactionId] = useState("");
+  const mrcPressedRef = useRef(false);
 
   const _evaluateCurrent = () => {
     if (!expression) return 0;
@@ -31,6 +32,7 @@ export function usePOS() {
 
   const handleMath = useCallback(
     (key: string) => {
+      mrcPressedRef.current = false;
       if (screenMode !== "CALC") {
         setScreenMode("CALC");
       }
@@ -97,13 +99,25 @@ export function usePOS() {
       if (action === "M+") {
         setMemory((prev) => prev + val);
         setShouldResetDisplay(true);
+        mrcPressedRef.current = false;
       } else if (action === "M-") {
         setMemory((prev) => prev - val);
         setShouldResetDisplay(true);
+        mrcPressedRef.current = false;
       } else if (action === "MRC") {
-        setExpression(memory.toString());
-        setDisplayValue(memory.toString());
-        setShouldResetDisplay(true);
+        if (mrcPressedRef.current) {
+          // Double press: Clear Memory
+          setMemory(0);
+          setExpression("0");
+          setDisplayValue("0");
+          mrcPressedRef.current = false;
+        } else {
+          // Single press: Recall Memory
+          setExpression(memory.toString());
+          setDisplayValue(memory.toString());
+          setShouldResetDisplay(true);
+          mrcPressedRef.current = true;
+        }
       }
     },
     [expression, memory],

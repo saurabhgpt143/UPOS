@@ -37,6 +37,7 @@ interface POSScreenProps {
   currentQrIndex: number;
   onCurrentQrIndexChange: (val: number) => void;
   stats: { sales: number; expenses: number; profit: number };
+  memory: number;
 }
 
 export function POSScreen({
@@ -56,6 +57,7 @@ export function POSScreen({
   currentQrIndex,
   onCurrentQrIndexChange,
   stats,
+  memory,
 }: POSScreenProps) {
   const [isFullscreenQr, setIsFullscreenQr] = useState(false);
   const [isDisplayExpanded, setIsDisplayExpanded] = useState(false);
@@ -127,6 +129,11 @@ export function POSScreen({
                 <span className="text-[10px] tracking-widest font-medium opacity-70 border border-gray-700 px-1.5 py-0.5 rounded text-[#3cc366] bg-[#3cc366]/10">
                   {pendingTxType}
                 </span>
+                {memory !== 0 && (
+                  <span className="text-[10px] tracking-widest font-bold opacity-90 border border-gray-700 px-1.5 py-0.5 rounded text-black bg-[#ffcc00]">
+                    M
+                  </span>
+                )}
               </div>
               <div className="flex items-center gap-3">
                 <input

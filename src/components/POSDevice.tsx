@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect } from "react";
 import { usePOS } from "../hooks/usePOS";
 import { useAudioFeedback } from "../hooks/useAudioFeedback";
 import { POSScreen } from "./POSScreen";
@@ -41,6 +41,7 @@ export function POSDevice() {
         "AC",
         "C",
         "DEL",
+        "%",
       ].includes(action)
     ) {
       pos.handleMath(action);
@@ -74,6 +75,67 @@ export function POSDevice() {
     }
   };
 
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Don't intercept if user is typing in an input field
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+        return;
+      }
+
+      let action = null;
+      let type = "plastic"; // Default to plastic sound for keys
+
+      switch (e.key) {
+        case "0":
+        case "1":
+        case "2":
+        case "3":
+        case "4":
+        case "5":
+        case "6":
+        case "7":
+        case "8":
+        case "9":
+        case ".":
+          action = e.key;
+          break;
+        case "+":
+          action = "+";
+          break;
+        case "-":
+          action = "−"; // Note the minus symbol used in the app
+          break;
+        case "*":
+          action = "×";
+          break;
+        case "/":
+          action = "÷";
+          break;
+        case "Enter":
+        case "=":
+          action = "=";
+          break;
+        case "Backspace":
+          action = "DEL";
+          break;
+        case "Escape":
+          action = "AC";
+          break;
+        case "%":
+          action = "%";
+          break;
+      }
+
+      if (action) {
+        e.preventDefault();
+        handleKeyPress({ action, type });
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [pos, playPlasticClick, playSiliconeClick]);
+
   return (
     <div className="relative w-full max-w-[400px] md:max-w-[800px] lg:max-w-full lg:w-full h-[100dvh] sm:h-[800px] md:h-[560px] lg:h-[100dvh] bg-black sm:rounded-[36px] lg:rounded-none overflow-hidden flex flex-col md:flex-row items-center md:items-stretch mx-auto sm:border-[6px] lg:border-none sm:border-[#1c1c1c] shadow-2xl lg:shadow-none">
       {/* Screen area */}
@@ -99,6 +161,7 @@ export function POSDevice() {
           currentQrIndex={pos.currentQrIndex}
           onCurrentQrIndexChange={pos.setCurrentQrIndex}
           stats={pos.stats}
+          memory={pos.memory}
         />
       </div>
 
