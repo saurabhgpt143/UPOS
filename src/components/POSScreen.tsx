@@ -1,4 +1,5 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
+import { createPortal } from "react-dom";
 import {
   RefreshCw,
   QrCode,
@@ -97,6 +98,23 @@ export function POSScreen({
       [val]: prev[val] + delta,
     }));
   };
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        if (previewPrintInfo) {
+          setPreviewPrintInfo(null);
+          e.stopImmediatePropagation();
+        } else if (isFullscreenQr) {
+          setIsFullscreenQr(false);
+          e.stopImmediatePropagation();
+        }
+      }
+    };
+    
+    window.addEventListener("keydown", handleKeyDown, true);
+    return () => window.removeEventListener("keydown", handleKeyDown, true);
+  }, [previewPrintInfo, isFullscreenQr]);
 
   return (
     <div
@@ -601,8 +619,15 @@ export function POSScreen({
       </div>
 
       {/* Fullscreen QR Overlay */}
-      {isFullscreenQr && (
-        <div className="fixed inset-0 z-[100] bg-black/95 flex flex-col items-center justify-center p-4">
+      {isFullscreenQr && createPortal(
+        <div 
+          className="fixed inset-0 z-[100] bg-black/95 flex flex-col items-center justify-center p-4"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) {
+              setIsFullscreenQr(false);
+            }
+          }}
+        >
           <button
             onClick={() => setIsFullscreenQr(false)}
             className="absolute top-6 right-6 bg-white/10 text-white p-3 rounded-full hover:bg-white/20 transition cursor-pointer z-10"
@@ -672,15 +697,22 @@ export function POSScreen({
               ))}
             </div>
           )}
-        </div>
+        </div>, document.body
       )}
 
       {/* Glare effect overlay */}
       <div className="absolute inset-0 bg-gradient-to-bl from-white/[0.08] to-transparent pointer-events-none z-20 mix-blend-screen" />
 
       {/* Thermal Print Preview Modal */}
-      {previewPrintInfo && (
-        <div className="fixed inset-0 z-[110] bg-black/95 flex flex-col items-center justify-center p-4">
+      {previewPrintInfo && createPortal(
+        <div 
+          className="fixed inset-0 z-[110] bg-black/95 flex flex-col items-center justify-center p-4"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) {
+              setPreviewPrintInfo(null);
+            }
+          }}
+        >
           <button
             onClick={() => setPreviewPrintInfo(null)}
             className="absolute top-6 right-6 bg-white/10 text-white p-3 rounded-full hover:bg-white/20 transition cursor-pointer z-10"
@@ -883,7 +915,7 @@ export function POSScreen({
               </button>
             </div>
           </div>
-        </div>
+        </div>, document.body
       )}
     </div>
   );
