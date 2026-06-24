@@ -1,4 +1,4 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useState, useRef, useCallback } from "react";
 import { usePOS } from "../hooks/usePOS";
 import { useAudioFeedback } from "../hooks/useAudioFeedback";
 import { POSScreen } from "./POSScreen";
@@ -8,6 +8,52 @@ import { cn } from "../lib/utils";
 export function POSDevice() {
   const pos = usePOS();
   const { playPlasticClick, playSiliconeClick, playError } = useAudioFeedback();
+
+  const [panelRatio, setPanelRatio] = useState(60); // Default 60%
+  const isDraggingRef = useRef(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  const startDragging = useCallback((e: React.MouseEvent | React.TouchEvent) => {
+    isDraggingRef.current = true;
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+  }, []);
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent | TouchEvent) => {
+      if (!isDraggingRef.current || !containerRef.current) return;
+      
+      const rect = containerRef.current.getBoundingClientRect();
+      const clientX = 'touches' in e ? e.touches[0].clientX : (e as MouseEvent).clientX;
+      
+      // Calculate based on container width and offset
+      const relativeX = clientX - rect.left;
+      const ratio = (relativeX / rect.width) * 100;
+      
+      // Clamp between 30% and 75%
+      setPanelRatio(Math.max(30, Math.min(75, ratio)));
+    };
+
+    const handleMouseUp = () => {
+      if (isDraggingRef.current) {
+        isDraggingRef.current = false;
+        document.body.style.cursor = "auto";
+        document.body.style.userSelect = "auto";
+      }
+    };
+
+    window.addEventListener("mousemove", handleMouseMove);
+    window.addEventListener("mouseup", handleMouseUp);
+    window.addEventListener("touchmove", handleMouseMove, { passive: false });
+    window.addEventListener("touchend", handleMouseUp);
+
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      window.removeEventListener("mouseup", handleMouseUp);
+      window.removeEventListener("touchmove", handleMouseMove);
+      window.removeEventListener("touchend", handleMouseUp);
+    };
+  }, []);
 
   const handleKeyPress = (keyConfig: any) => {
     const { action, type } = keyConfig;
@@ -137,11 +183,15 @@ export function POSDevice() {
   }, [pos, playPlasticClick, playSiliconeClick]);
 
   return (
-    <div className="relative w-full max-w-[400px] md:max-w-[800px] lg:max-w-full lg:w-full h-[100dvh] sm:h-[800px] md:h-[560px] lg:h-[100dvh] bg-black sm:rounded-[36px] lg:rounded-none overflow-hidden flex flex-col md:flex-row items-center md:items-stretch mx-auto sm:border-[6px] lg:border-none sm:border-[#1c1c1c] shadow-2xl lg:shadow-none">
+    <div 
+      ref={containerRef}
+      className="relative w-full max-w-[400px] md:max-w-[800px] lg:max-w-full lg:w-full h-[100dvh] sm:h-[800px] md:h-[560px] lg:h-[100dvh] bg-black sm:rounded-[36px] lg:rounded-none overflow-hidden flex flex-col md:flex-row items-center md:items-stretch mx-auto sm:border-[6px] lg:border-none sm:border-[#1c1c1c] shadow-2xl lg:shadow-none"
+      style={{ '--panel-ratio': `${panelRatio}%`, '--keypad-ratio': `calc(100% - ${panelRatio}% - 8px)` } as React.CSSProperties}
+    >
       {/* Screen area */}
       <div
         className={cn(
-          "w-full md:w-[45%] lg:w-[60%] xl:w-[65%] pt-4 sm:pt-10 md:pt-6 md:pb-6 lg:pt-12 px-4 lg:px-16 xl:px-24 mb-2 md:mb-0 relative z-10 flex flex-col justify-end md:justify-center transition-all duration-300 flex-1 min-h-0",
+          "w-full md:w-[var(--panel-ratio)] pt-4 sm:pt-10 md:pt-6 md:pb-6 lg:pt-12 px-4 lg:px-16 xl:px-24 mb-2 md:mb-0 relative z-10 flex flex-col justify-end md:justify-center flex-1 md:flex-none min-h-0",
         )}
       >
         <POSScreen
@@ -165,13 +215,19 @@ export function POSDevice() {
         />
       </div>
 
-      {/* Separator for desktop */}
-      <div className="hidden md:block w-[2px] bg-[#1c1c1c] relative z-10 shadow-lg" />
+      {/* Separator / Drag Handle for desktop */}
+      <div 
+        className="hidden md:flex w-[8px] bg-[#111] hover:bg-[#222] active:bg-[#333] relative z-20 shadow-lg cursor-col-resize flex-col justify-center items-center group flex-shrink-0 transition-colors"
+        onMouseDown={startDragging}
+        onTouchStart={startDragging}
+      >
+        <div className="w-[2px] h-12 bg-[#333] group-hover:bg-[#555] rounded-full" />
+      </div>
 
       {/* Keypad Area */}
       <div
         className={cn(
-          "w-full md:w-[55%] lg:w-[40%] xl:w-[35%] relative z-10 bg-black transition-all duration-300 flex-shrink-0 lg:py-8 overflow-y-auto no-scrollbar",
+          "w-full md:w-[var(--keypad-ratio)] relative z-10 bg-black flex-shrink-0 lg:py-8 overflow-y-auto no-scrollbar",
         )}
       >
         <div className="min-h-full flex flex-col justify-center">
