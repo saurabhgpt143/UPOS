@@ -439,9 +439,31 @@ export function POSScreen({
                   key={val}
                   className="flex justify-between items-center bg-[#1e1e1e] rounded px-1.5 py-0.5"
                 >
-                  <span className="text-[10px] font-bold text-white w-8">
-                    ₹{val}
-                  </span>
+                  <div className="flex items-center gap-1.5">
+                    {val >= 5 ? (
+                      <div className={cn(
+                        "w-7 h-4 flex items-center justify-center text-[7px] font-bold shadow-sm border border-black/20 rounded-[2px]",
+                        {
+                          500: "bg-[#7a817b] text-white",
+                          200: "bg-[#f0a92f] text-black",
+                          100: "bg-[#7b6b8f] text-white",
+                          50: "bg-[#5dbcd2] text-black",
+                          20: "bg-[#b0c24a] text-black",
+                          10: "bg-[#764b36] text-white",
+                          5: "bg-[#5a9354] text-white",
+                        }[val]
+                      )}>
+                        {val}
+                      </div>
+                    ) : (
+                      <div className="bg-[#bcc6cc] text-black rounded-full w-4 h-4 flex items-center justify-center text-[7px] font-bold shadow-sm border border-black/20">
+                        {val}
+                      </div>
+                    )}
+                    <span className="text-[10px] font-bold text-white w-6">
+                      ₹{val}
+                    </span>
+                  </div>
                   <div className="flex items-center gap-1.5">
                     <button
                       onClick={() => handleDenominationChange(val, -1)}
