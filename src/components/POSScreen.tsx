@@ -14,6 +14,7 @@ import {
   Share2,
   Smartphone,
   FileText,
+  Trash2,
   Image as ImageIcon
 } from "lucide-react";
 import { ScreenMode, Transaction } from "../types";
@@ -33,12 +34,22 @@ interface POSScreenProps {
   onTransactionIdChange: (val: string) => void;
   upiId: string;
   onUpiIdChange: (val: string) => void;
+  upiNote: string;
+  onUpiNoteChange: (val: string) => void;
   customQrUrls: string[];
   onCustomQrUrlsChange: (val: string[]) => void;
   currentQrIndex: number;
   onCurrentQrIndexChange: (val: number) => void;
   stats: { sales: number; expenses: number; profit: number };
   memory: number;
+  paymentBillAmount: number;
+  otherBillAmount: number;
+  onConfirmPayment: (paymentDetails: { cash: number; upi: number; other: number }, otherMode?: string, remarks?: string, denominations?: Record<number, number>, remainingBalance?: number) => void;
+  onConfirmOtherPayment: (otherMode: string, remarks: string) => void;
+  onUpdateTransactionDenominations: (denoms: Record<number, number>) => void;
+  onHandlePayment?: (method: "CASH" | "UPI" | "OTHER" | "UDHAAR" | "PAYMENT REQUIRED" | "PAYMENT") => void;
+  setScreenMode: (mode: ScreenMode) => void;
+  onDeleteTransaction: (id: string) => void;
 }
 
 export function POSScreen({
@@ -53,20 +64,70 @@ export function POSScreen({
   onTransactionIdChange,
   upiId,
   onUpiIdChange,
+  upiNote,
+  onUpiNoteChange,
   customQrUrls,
   onCustomQrUrlsChange,
   currentQrIndex,
   onCurrentQrIndexChange,
   stats,
   memory,
+  paymentBillAmount,
+  otherBillAmount,
+  onConfirmPayment,
+  onConfirmOtherPayment,
+  onUpdateTransactionDenominations,
+  onHandlePayment,
+  setScreenMode,
+  onDeleteTransaction,
 }: POSScreenProps) {
   const [isFullscreenQr, setIsFullscreenQr] = useState(false);
+  const [shareStatus, setShareStatus] = useState<string | null>(null);
   const [isDisplayExpanded, setIsDisplayExpanded] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const isHistoryActive = (mode as string) === "HISTORY";
   const [previewPrintInfo, setPreviewPrintInfo] = useState<{
     type: "tx" | "cash";
     tx?: Transaction;
     lines?: string[];
   } | null>(null);
+
+  const [paymentSubMode, setPaymentSubMode] = useState<"menu" | "split">("menu");
+  const [paymentCash, setPaymentCash] = useState<number | "">("");
+  const [paymentUpi, setPaymentUpi] = useState<number | "">("");
+  const [paymentOther, setPaymentOther] = useState<number | "">("");
+
+  const [activeSplitSection, setActiveSplitSection] = useState<"CASH" | "UPI" | "OTHER" | null>(null);
+  const [splitCashAmount, setSplitCashAmount] = useState<number>(0);
+  const [splitUpiAmount, setSplitUpiAmount] = useState<number>(0);
+  const [splitOtherAmount, setSplitOtherAmount] = useState<number>(0);
+
+  const [otherModeInput, setOtherModeInput] = useState("");
+  const [otherRemarksInput, setOtherRemarksInput] = useState("");
+
+  const activateCashPortion = () => {
+    const currentVal = paymentCash !== "" ? Number(paymentCash) : 0;
+    const remaining = Math.max(0, paymentBillAmount - (Number(paymentUpi) || 0) - (Number(paymentOther) || 0));
+    const target = currentVal > 0 ? currentVal : remaining;
+    setSplitCashAmount(target);
+    setActiveSplitSection("CASH");
+  };
+
+  const activateUpiPortion = () => {
+    const currentVal = paymentUpi !== "" ? Number(paymentUpi) : 0;
+    const remaining = Math.max(0, paymentBillAmount - (Number(paymentCash) || 0) - (Number(paymentOther) || 0));
+    const target = currentVal > 0 ? currentVal : remaining;
+    setSplitUpiAmount(target);
+    setActiveSplitSection("UPI");
+  };
+
+  const activateOtherPortion = () => {
+    const currentVal = paymentOther !== "" ? Number(paymentOther) : 0;
+    const remaining = Math.max(0, paymentBillAmount - (Number(paymentCash) || 0) - (Number(paymentUpi) || 0));
+    const target = currentVal > 0 ? currentVal : remaining;
+    setSplitOtherAmount(target);
+    setActiveSplitSection("OTHER");
+  };
 
   const computedUpiId = (() => {
     if (!upiId) return "saurabhgpt143-2@oksbi";
@@ -74,6 +135,256 @@ export function POSScreen({
     if (!upiId.includes("@")) return `${upiId}@upi`;
     return upiId;
   })();
+
+  const retrievedName = (() => {
+    if (!upiId) return "Saurabh Gupta";
+    const handle = upiId.split("@")[0].toLowerCase();
+    if (handle === "saurabhgpt143-2" || handle === "saurabhgpt143") return "Saurabh Gupta";
+    if (handle === "saurabh") return "Saurabh";
+    
+    // Convert john.doe123 -> John Doe
+    return handle
+      .split(/[\._\-]/)
+      .map(word => word.replace(/\d+/g, ""))
+      .filter(Boolean)
+      .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(" ");
+  })();
+
+  const getUpiUrl = (amount: number) => {
+    let url = `upi://pay?pn=${encodeURIComponent(retrievedName)}&am=${amount}&cu=INR&pa=${computedUpiId}`;
+    if (upiNote) {
+      url += `&tn=${encodeURIComponent(upiNote)}`;
+    }
+    return url;
+  };
+
+  const handleShareQr = async (amount: number) => {
+    const upiUrl = getUpiUrl(amount);
+    try {
+      setShareStatus("Preparing...");
+
+      const isCustom = customQrUrls.length > 0 && currentQrIndex < customQrUrls.length;
+      
+      if (navigator.share) {
+        let fileToShare: File | null = null;
+
+        if (isCustom) {
+          const customUrl = customQrUrls[currentQrIndex];
+          const response = await fetch(customUrl);
+          const blob = await response.blob();
+          fileToShare = new File([blob], "upi_qr.png", { type: blob.type });
+        } else {
+          const svgEl = document.querySelector(".upi-qr-wrapper svg") || document.querySelector("svg[value*='upi://']");
+          if (svgEl) {
+            const svgString = new XMLSerializer().serializeToString(svgEl);
+            const svgBlob = new Blob([svgString], { type: "image/svg+xml;charset=utf-8" });
+            const blobURL = URL.createObjectURL(svgBlob);
+            
+            await new Promise<void>((resolve, reject) => {
+              const image = new Image();
+              image.onload = () => {
+                try {
+                  const canvas = document.createElement("canvas");
+                  canvas.width = 512;
+                  canvas.height = 512;
+                  const context = canvas.getContext("2d");
+                  if (context) {
+                    context.fillStyle = "#ffffff";
+                    context.fillRect(0, 0, 512, 512);
+                    context.drawImage(image, 32, 32, 448, 448);
+                    
+                    context.fillStyle = "#000000";
+                    context.font = "bold 24px sans-serif";
+                    context.textAlign = "center";
+                    context.fillText(`UPI Pay: ₹${amount}`, 256, 495);
+
+                    canvas.toBlob((blob) => {
+                      if (blob) {
+                        fileToShare = new File([blob], `upi_qr_${amount}.png`, { type: "image/png" });
+                        resolve();
+                      } else {
+                        reject(new Error("Blob generation failed"));
+                      }
+                    }, "image/png");
+                  } else {
+                    reject(new Error("Canvas context is null"));
+                  }
+                } catch (err) {
+                  reject(err);
+                }
+              };
+              image.onerror = (err) => reject(err);
+              image.src = blobURL;
+            });
+          }
+        }
+
+        const shareData: ShareData = {
+          title: "UPI QR Code",
+          text: `Scan to pay ₹${amount} via UPI`,
+        };
+
+        if (fileToShare && navigator.canShare && navigator.canShare({ files: [fileToShare] })) {
+          shareData.files = [fileToShare];
+        } else {
+          shareData.url = upiUrl;
+        }
+
+        await navigator.share(shareData);
+        setShareStatus("Shared!");
+      } else {
+        await navigator.clipboard.writeText(upiUrl);
+        setShareStatus("Copied Link!");
+      }
+    } catch (err: any) {
+      const name = (err?.name || "").toLowerCase();
+      const message = (err?.message || "").toLowerCase();
+      const isCancel =
+        name === "aborterror" ||
+        name === "notallowederror" ||
+        message.includes("cancel") ||
+        message.includes("cancelled") ||
+        message.includes("abort");
+
+      if (isCancel) {
+        setShareStatus(null);
+      } else {
+        console.error("Error sharing QR:", err);
+        try {
+          await navigator.clipboard.writeText(upiUrl);
+          setShareStatus("Copied Link!");
+        } catch {
+          setShareStatus("Failed");
+        }
+      }
+    }
+
+    setTimeout(() => {
+      setShareStatus(null);
+    }, 3000);
+  };
+
+  const handlePrintQr = async (amount: number) => {
+    try {
+      const isCustom = customQrUrls.length > 0 && currentQrIndex < customQrUrls.length;
+      let qrImgSrc = "";
+
+      if (isCustom) {
+        qrImgSrc = customQrUrls[currentQrIndex];
+      } else {
+        const svgEl = document.querySelector(".upi-qr-wrapper svg") || document.querySelector("svg[value*='upi://']");
+        if (svgEl) {
+          const svgString = new XMLSerializer().serializeToString(svgEl);
+          const svgBlob = new Blob([svgString], { type: "image/svg+xml;charset=utf-8" });
+          qrImgSrc = URL.createObjectURL(svgBlob);
+        }
+      }
+
+      if (!qrImgSrc) {
+        const upiUrl = getUpiUrl(amount);
+        console.error("QR Code image source not found, fallback to link copy");
+        await navigator.clipboard.writeText(upiUrl);
+        setShareStatus("Copied Link!");
+        setTimeout(() => setShareStatus(null), 2000);
+        return;
+      }
+
+      const printWindow = window.open("", "_blank");
+      if (printWindow) {
+        const printContent = `
+          <html>
+            <head>
+              <title>Print QR Code - ₹${amount}</title>
+              <style>
+                @page { margin: 0; size: 58mm auto; }
+                body {
+                  font-family: monospace;
+                  padding: 10px;
+                  margin: 0 auto;
+                  color: #000;
+                  width: 48mm;
+                  font-size: 11px;
+                  text-align: center;
+                  display: flex;
+                  flex-direction: column;
+                  align-items: center;
+                  justify-content: center;
+                }
+                .header {
+                  font-weight: bold;
+                  font-size: 14px;
+                  margin-bottom: 2px;
+                  text-transform: uppercase;
+                }
+                .subtitle {
+                  font-size: 9px;
+                  color: #333;
+                  margin-bottom: 5px;
+                }
+                .divider {
+                  border-top: 1px dashed #000;
+                  width: 100%;
+                  margin: 5px 0 10px 0;
+                }
+                .qr-container {
+                  background: white;
+                  padding: 4px;
+                  border: 1px solid #ddd;
+                  display: inline-block;
+                }
+                .qr-img {
+                  width: 150px;
+                  height: 150px;
+                  display: block;
+                }
+                .amount-label {
+                  font-size: 10px;
+                  margin-top: 8px;
+                  color: #444;
+                }
+                .amount-val {
+                  font-weight: bold;
+                  font-size: 18px;
+                  margin-top: 2px;
+                  margin-bottom: 5px;
+                }
+                .footer {
+                  font-size: 8px;
+                  color: #666;
+                  margin-top: 4px;
+                }
+              </style>
+            </head>
+            <body>
+              <div class="header">UNIVERSE POS</div>
+              <div class="subtitle">UPI PAYMENT QR</div>
+              <div class="divider"></div>
+              <div class="qr-container">
+                <img class="qr-img" src="${qrImgSrc}" />
+              </div>
+              <div class="amount-label">Verified Payee: <strong>${retrievedName}</strong></div>
+              <div class="amount-val">₹${amount}</div>
+              <div class="divider" style="margin-top: 5px;"></div>
+              <div class="footer">Thank You!</div>
+              <script>
+                window.onload = () => {
+                  setTimeout(() => {
+                    window.print();
+                    window.close();
+                  }, 350);
+                };
+              </script>
+            </body>
+          </html>
+        `;
+        printWindow.document.write(printContent);
+        printWindow.document.close();
+      }
+    } catch (err) {
+      console.error("Failed to print QR code:", err);
+    }
+  };
 
   const [denominations, setDenominations] = useState<Record<number, number>>({
     500: 0,
@@ -97,6 +408,126 @@ export function POSScreen({
       ...prev,
       [val]: prev[val] + delta,
     }));
+  };
+
+  useEffect(() => {
+    if (mode === "CASH") {
+      setDenominations({
+        500: 0,
+        200: 0,
+        100: 0,
+        50: 0,
+        20: 0,
+        10: 0,
+        5: 0,
+        2: 0,
+        1: 0,
+      });
+    }
+    if (mode === "PAYMENT") {
+      setPaymentSubMode("menu");
+      setPaymentCash("");
+      setPaymentUpi("");
+      setPaymentOther("");
+      setActiveSplitSection(null);
+      setDenominations({
+        500: 0,
+        200: 0,
+        100: 0,
+        50: 0,
+        20: 0,
+        10: 0,
+        5: 0,
+        2: 0,
+        1: 0,
+      });
+    }
+    if (mode === "OTHER") {
+      setOtherModeInput("");
+      setOtherRemarksInput("");
+    }
+  }, [mode]);
+
+  useEffect(() => {
+    if (mode === "CASH") {
+      onUpdateTransactionDenominations(denominations);
+    }
+  }, [denominations, mode, onUpdateTransactionDenominations]);
+
+  const getTxLines = (tx: Transaction): string[] => {
+    const lines = [
+      "         UNIVERSE POS         ",
+      "--------------------------------",
+      `Date: ${new Date(tx.timestamp).toLocaleString()}`,
+      `Type: ${tx.type}`,
+    ];
+    if (tx.method === "PAYMENT") {
+      lines.push(`Mode: PAYMENT`);
+      if (tx.paymentDetails?.cash) lines.push(`  Cash: Rs ${tx.paymentDetails.cash}`);
+      if (tx.paymentDetails?.upi) lines.push(`  UPI:  Rs ${tx.paymentDetails.upi}`);
+      if (tx.paymentDetails?.other) lines.push(`  Other: Rs ${tx.paymentDetails.other}`);
+    } else if (tx.method === "OTHER") {
+      lines.push(`Mode: OTHER`);
+      if (tx.otherMode) lines.push(`  Type: ${tx.otherMode}`);
+      if (tx.remarks) lines.push(`  Note: ${tx.remarks}`);
+    } else {
+      lines.push(`Mode: ${tx.method}`);
+      if (tx.remarks) lines.push(`  Note: ${tx.remarks}`);
+    }
+    lines.push(`Tx ID: ${tx.id.toUpperCase()}`);
+    if (tx.denominations && Object.entries(tx.denominations).some(([_, count]) => count > 0)) {
+      lines.push("DENOMINATIONS:");
+      Object.entries(tx.denominations)
+        .filter(([_, count]) => count > 0)
+        .sort(([a], [b]) => Number(b) - Number(a))
+        .forEach(([val, count]) => {
+          const left = `  Rs.${val} x ${count}`;
+          const right = `Rs.${Number(val) * count}`;
+          const spaces = Math.max(0, 32 - left.length - right.length);
+          lines.push(`${left}${" ".repeat(spaces)}${right}`);
+        });
+
+      const paidCash = Object.entries(tx.denominations)
+        .reduce((acc, [val, count]) => acc + Number(val) * count, 0);
+      const targetCash = (tx.method === "PAYMENT" && tx.paymentDetails)
+        ? tx.paymentDetails.cash
+        : (tx.method === "CASH" ? tx.amount : 0);
+
+      if (paidCash > targetCash && targetCash > 0) {
+        const changeAmount = paidCash - targetCash;
+        lines.push("--------------------------------");
+        lines.push(`CHANGE DUE: Rs ${changeAmount}`);
+        lines.push("RETURN DENOMINATIONS:");
+        
+        let remainingChange = changeAmount;
+        const denoms = [500, 200, 100, 50, 20, 10, 5, 2, 1];
+        for (const d of denoms) {
+          if (remainingChange >= d) {
+            const count = Math.floor(remainingChange / d);
+            if (count > 0) {
+              const left = `  Rs.${d} x ${count}`;
+              const right = `Rs.${d * count}`;
+              const spaces = Math.max(0, 32 - left.length - right.length);
+              lines.push(`${left}${" ".repeat(spaces)}${right}`);
+            }
+            remainingChange -= count * d;
+          }
+        }
+      }
+    }
+    lines.push("--------------------------------");
+    lines.push(`TOTAL: Rs ${tx.amount}`);
+    if (tx.remainingBalance && tx.remainingBalance > 0) {
+      lines.push("--------------------------------");
+      lines.push(`PAID AMOUNT: Rs ${tx.amount - tx.remainingBalance}`);
+      lines.push(`BALANCE DUE: Rs ${tx.remainingBalance}`);
+      lines.push("================================");
+    } else {
+      lines.push("--------------------------------");
+    }
+    lines.push("           THANK YOU            ");
+    lines.push("        Mob: 9752556113         ");
+    return lines;
   };
 
   useEffect(() => {
@@ -138,7 +569,11 @@ export function POSScreen({
                   <Ruler className="w-4 h-4" />
                 </button>
                 <button
-                  className="text-gray-400 hover:text-white transition-colors p-1"
+                  onClick={() => setScreenMode(isHistoryActive ? "CALC" : "HISTORY")}
+                  className={cn(
+                    "transition-colors p-1 rounded",
+                    isHistoryActive ? "text-[#3cc366] bg-[#3cc366]/10" : "text-gray-400 hover:text-white"
+                  )}
                   title="History"
                 >
                   <Clock className="w-4 h-4" />
@@ -192,371 +627,522 @@ export function POSScreen({
           </div>
         )}
 
-        {mode === "QR" && (
-          <div className="flex-1 flex flex-col items-center justify-center p-3 text-center bg-black relative">
-            <div className="text-xs font-bold text-gray-400 mb-1 tracking-widest uppercase">
-              Scan to Pay UPI
-            </div>
-            <div className="text-xl font-bold text-white mb-2">₹{qrAmount}</div>
-            <div className="relative group w-[85%] max-w-[180px] lg:max-w-[300px] xl:max-w-[360px] mx-auto aspect-square flex items-center justify-center">
-              {customQrUrls.length > 0 && (
-                <button
-                  onClick={(e) => {
-                    e.preventDefault();
-                    onCurrentQrIndexChange(Math.max(0, currentQrIndex - 1));
-                  }}
-                  disabled={currentQrIndex === 0}
-                  className="absolute -left-6 lg:-left-12 z-10 bg-white shadow rounded-full p-1 lg:p-2 border text-gray-500 disabled:opacity-30 disabled:cursor-not-allowed"
-                >
-                  <ChevronLeft className="w-4 h-4 lg:w-6 lg:h-6" />
-                </button>
+        {(mode === "QR" || (mode === "PAYMENT" && paymentSubMode === "split" && activeSplitSection === "UPI")) && (() => {
+          const isSplitUpi = mode === "PAYMENT" && paymentSubMode === "split" && activeSplitSection === "UPI";
+          const displayQrAmount = isSplitUpi ? splitUpiAmount : qrAmount;
+
+          return (
+            <div className="flex-1 flex flex-col items-center justify-center p-3 text-center bg-black relative">
+              {isSplitUpi ? (
+                <div className="w-full flex items-center justify-between mb-2 pb-1.5 border-b border-gray-800">
+                  <button
+                    onClick={() => setActiveSplitSection(null)}
+                    className="text-gray-400 hover:text-white transition-colors flex items-center gap-1 text-[11px] font-bold"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                    Back to Split
+                  </button>
+                  <span className="text-[10px] font-bold text-gray-500 tracking-wider uppercase">
+                    Split UPI Portion
+                  </span>
+                  <div className="w-12"></div>
+                </div>
+              ) : (
+                <div className="text-xs font-bold text-gray-400 mb-1 tracking-widest uppercase">
+                  Scan to Pay UPI
+                </div>
               )}
 
-              <div className="w-full h-full relative">
-                <div
-                  className="w-full h-full relative cursor-pointer"
-                  onClick={() => setIsFullscreenQr(true)}
-                >
-                  {customQrUrls.length > 0 &&
-                  currentQrIndex < customQrUrls.length ? (
-                    <img
-                      src={customQrUrls[currentQrIndex]}
-                      alt="Custom QR"
-                      className="w-full h-full object-contain bg-white shadow-md rounded-md p-1 border border-gray-700"
+              {isSplitUpi ? (
+                <div className="bg-[#111] border border-gray-800 rounded-lg p-2 flex justify-between items-center mb-2 w-full max-w-[240px] mx-auto shrink-0">
+                  <span className="text-[10px] font-bold text-gray-400">UPI Amount:</span>
+                  <div className="relative flex items-center bg-black border border-gray-800 rounded overflow-hidden">
+                    <span className="absolute left-2 text-[10px] text-gray-500 font-bold">₹</span>
+                    <input
+                      type="number"
+                      value={splitUpiAmount === 0 ? "" : splitUpiAmount}
+                      onChange={(e) => setSplitUpiAmount(parseFloat(e.target.value) || 0)}
+                      placeholder="0"
+                      className="w-24 bg-transparent text-xs text-[#3cc366] pl-5 pr-1.5 py-0.5 outline-none font-mono font-bold"
                     />
-                  ) : (
-                    <div className="w-full bg-white shadow-md rounded-md p-2 flex items-center justify-center">
-                      <QRCode
-                        value={`upi://pay?pn=Merchant&am=${qrAmount}&cu=INR&pa=${computedUpiId}`}
-                        size={200}
-                        style={{
-                          height: "auto",
-                          maxWidth: "100%",
-                          width: "100%",
-                        }}
-                      />
-                    </div>
-                  )}
-
-                  {/* Fullscreen icon hint */}
-                  <div className="absolute inset-0 bg-black/20 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity rounded-md pointer-events-none">
-                    <Maximize2 className="w-8 h-8 text-white drop-shadow-md" />
                   </div>
                 </div>
+              ) : (
+                <div className="text-xl font-bold text-white mb-2">₹{displayQrAmount}</div>
+              )}
 
-                <label
-                  className="absolute -bottom-2 -right-2 bg-blue-600 text-white p-2 rounded-full cursor-pointer opacity-0 group-hover:opacity-100 transition-opacity shadow-md hover:bg-blue-700 z-20"
-                  title="Add New QR"
-                  onClick={(e) => e.stopPropagation()}
-                >
-                  <Plus className="w-4 h-4" />
-                  <input
-                    type="file"
-                    accept="image/*"
-                    multiple
-                    className="hidden"
-                    onChange={(e) => {
-                      if (e.target.files && e.target.files.length > 0) {
-                        const newUrls = Array.from(e.target.files).map((f) =>
-                          URL.createObjectURL(f as File),
-                        );
-                        const newQrUrls = [...customQrUrls, ...newUrls];
-                        onCustomQrUrlsChange(newQrUrls);
-                        onCurrentQrIndexChange(newQrUrls.length - 1);
-                      }
+              <div className="relative group w-[85%] max-w-[180px] lg:max-w-[300px] xl:max-w-[360px] mx-auto aspect-square flex items-center justify-center">
+                {customQrUrls.length > 0 && (
+                  <button
+                    onClick={(e) => {
+                      e.preventDefault();
+                      onCurrentQrIndexChange(Math.max(0, currentQrIndex - 1));
                     }}
-                  />
-                </label>
+                    disabled={currentQrIndex === 0}
+                    className="absolute -left-6 lg:-left-12 z-10 bg-white shadow rounded-full p-1 lg:p-2 border text-gray-500 disabled:opacity-30 disabled:cursor-not-allowed"
+                  >
+                    <ChevronLeft className="w-4 h-4 lg:w-6 lg:h-6" />
+                  </button>
+                )}
 
-                {customQrUrls.length > 0 &&
-                  currentQrIndex < customQrUrls.length && (
-                    <button
-                      onClick={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        const newUrls = customQrUrls.filter(
-                          (_, i) => i !== currentQrIndex,
-                        );
-                        onCustomQrUrlsChange(newUrls);
-                        onCurrentQrIndexChange(
-                          Math.min(
-                            currentQrIndex,
-                            Math.max(0, newUrls.length - 1),
-                          ),
-                        );
+                <div className="w-full h-full relative">
+                  <div
+                    className="w-full h-full relative cursor-pointer"
+                    onClick={() => setIsFullscreenQr(true)}
+                  >
+                    {customQrUrls.length > 0 &&
+                    currentQrIndex < customQrUrls.length ? (
+                      <img
+                        src={customQrUrls[currentQrIndex]}
+                        alt="Custom QR"
+                        className="w-full h-full object-contain bg-white shadow-md rounded-md p-1 border border-gray-700"
+                      />
+                    ) : (
+                      <div className="w-full bg-white shadow-md rounded-md p-3 flex flex-col items-center justify-center upi-qr-wrapper gap-2 border border-gray-200">
+                        <QRCode
+                          value={getUpiUrl(displayQrAmount)}
+                          size={200}
+                          style={{
+                            height: "auto",
+                            maxWidth: "100%",
+                            width: "100%",
+                          }}
+                        />
+                        <div className="text-[11px] font-bold text-gray-800 flex items-center gap-1.5 mt-1 bg-transparent">
+                          <span className="w-2 h-2 rounded-full bg-[#3cc366] animate-pulse shrink-0"></span>
+                          <span className="truncate max-w-[180px]">{retrievedName}</span>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Fullscreen icon hint */}
+                    <div className="absolute inset-0 bg-black/20 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity rounded-md pointer-events-none">
+                      <Maximize2 className="w-8 h-8 text-white drop-shadow-md" />
+                    </div>
+                  </div>
+
+                  <label
+                    className="absolute -bottom-2 -right-2 bg-blue-600 text-white p-2 rounded-full cursor-pointer opacity-0 group-hover:opacity-100 transition-opacity shadow-md hover:bg-blue-700 z-20"
+                    title="Add New QR"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <Plus className="w-4 h-4" />
+                    <input
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      className="hidden"
+                      onChange={(e) => {
+                        if (e.target.files && e.target.files.length > 0) {
+                          const newUrls = Array.from(e.target.files).map((f) =>
+                            URL.createObjectURL(f as File),
+                          );
+                          const newQrUrls = [...customQrUrls, ...newUrls];
+                          onCustomQrUrlsChange(newQrUrls);
+                          onCurrentQrIndexChange(newQrUrls.length - 1);
+                        }
                       }}
-                      className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs opacity-0 group-hover:opacity-100 transition-opacity shadow-sm z-20"
-                      title="Remove custom QR"
-                    >
-                      ×
-                    </button>
-                  )}
+                    />
+                  </label>
+
+                  {customQrUrls.length > 0 &&
+                    currentQrIndex < customQrUrls.length && (
+                      <button
+                        onClick={(e) => {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          const newUrls = customQrUrls.filter(
+                            (_, i) => i !== currentQrIndex,
+                          );
+                          onCustomQrUrlsChange(newUrls);
+                          onCurrentQrIndexChange(
+                            Math.min(
+                              currentQrIndex,
+                              Math.max(0, newUrls.length - 1),
+                            ),
+                          );
+                        }}
+                        className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs opacity-0 group-hover:opacity-100 transition-opacity shadow-sm z-20"
+                        title="Remove custom QR"
+                      >
+                        ×
+                      </button>
+                    )}
+                </div>
+
+                {customQrUrls.length > 0 && (
+                  <button
+                    onClick={(e) => {
+                      e.preventDefault();
+                      onCurrentQrIndexChange(
+                        Math.min(customQrUrls.length - 1, currentQrIndex + 1),
+                      );
+                    }}
+                    disabled={currentQrIndex === customQrUrls.length - 1}
+                    className="absolute -right-6 lg:-right-12 z-10 bg-white shadow rounded-full p-1 lg:p-2 border text-gray-500 disabled:opacity-30 disabled:cursor-not-allowed"
+                  >
+                    <ChevronRight className="w-4 h-4 lg:w-6 lg:h-6" />
+                  </button>
+                )}
               </div>
 
-              {customQrUrls.length > 0 && (
+              {customQrUrls.length > 1 && (
+                <div className="flex gap-1 mt-2 justify-center">
+                  {customQrUrls.map((_, i) => (
+                    <div
+                      key={i}
+                      className={cn(
+                        "w-1.5 h-1.5 rounded-full",
+                        i === currentQrIndex ? "bg-blue-600" : "bg-blue-200",
+                      )}
+                    />
+                  ))}
+                </div>
+              )}
+
+              <div className="mt-4 w-full max-w-[180px] lg:max-w-[240px] grid grid-cols-2 gap-2">
                 <button
-                  onClick={(e) => {
-                    e.preventDefault();
-                    onCurrentQrIndexChange(
-                      Math.min(customQrUrls.length - 1, currentQrIndex + 1),
-                    );
-                  }}
-                  disabled={currentQrIndex === customQrUrls.length - 1}
-                  className="absolute -right-6 lg:-right-12 z-10 bg-white shadow rounded-full p-1 lg:p-2 border text-gray-500 disabled:opacity-30 disabled:cursor-not-allowed"
+                  onClick={() => handleShareQr(displayQrAmount)}
+                  className="flex items-center justify-center gap-1.5 bg-[#1c1c1e] hover:bg-[#2c2c2e] active:bg-[#3a3a3c] border border-gray-800 text-gray-200 hover:text-white py-1.5 px-2 rounded-lg text-[11px] font-bold transition-all shadow-md cursor-pointer"
+                  title="Share UPI QR Code"
                 >
-                  <ChevronRight className="w-4 h-4 lg:w-6 lg:h-6" />
+                  <Share2 className="w-3.5 h-3.5 text-[#3cc366] shrink-0" />
+                  <span>{shareStatus || "Share"}</span>
+                </button>
+                <button
+                  onClick={() => handlePrintQr(displayQrAmount)}
+                  className="flex items-center justify-center gap-1.5 bg-[#1c1c1e] hover:bg-[#2c2c2e] active:bg-[#3a3a3c] border border-gray-800 text-gray-200 hover:text-white py-1.5 px-2 rounded-lg text-[11px] font-bold transition-all shadow-md cursor-pointer"
+                  title="Print UPI QR Code"
+                >
+                  <Printer className="w-3.5 h-3.5 text-blue-400 shrink-0" />
+                  <span>Print</span>
+                </button>
+              </div>
+
+              <div className="flex flex-col items-center gap-1 mt-6 w-full max-w-[200px]">
+                <div className="flex items-center gap-1 text-gray-400 text-[10px] font-bold">
+                  <QrCode className="w-3 h-3" />
+                  UPI ID or Mobile No.
+                </div>
+                <input
+                  type="text"
+                  placeholder="saurabhgpt143-2@oksbi"
+                  value={upiId}
+                  onChange={(e) => onUpiIdChange(e.target.value)}
+                  className="w-full text-[10px] bg-transparent border-b border-gray-700 rounded-none px-2 py-1 text-center outline-none focus:border-[#3cc366] placeholder:text-gray-600 text-white transition-colors"
+                />
+              </div>
+
+              <div className="flex flex-col items-center gap-1 mt-4 w-full max-w-[200px]">
+                <div className="flex items-center gap-1 text-gray-400 text-[10px] font-bold">
+                  <FileText className="w-3 h-3 text-blue-400" />
+                  Optional Note / Remarks
+                </div>
+                <input
+                  type="text"
+                  placeholder="e.g. Universe POS"
+                  value={upiNote}
+                  onChange={(e) => onUpiNoteChange(e.target.value)}
+                  className="w-full text-[10px] bg-transparent border-b border-gray-700 rounded-none px-2 py-1 text-center outline-none focus:border-[#3cc366] placeholder:text-gray-600 text-white transition-colors"
+                />
+              </div>
+
+              {isSplitUpi && (
+                <button
+                  onClick={() => {
+                    setPaymentUpi(splitUpiAmount);
+                    setActiveSplitSection(null);
+                  }}
+                  className="w-full max-w-[240px] mx-auto bg-[#3cc366] text-black font-bold py-2 rounded text-xs hover:bg-[#32a454] mt-3 transition-colors cursor-pointer"
+                >
+                  Apply ₹{splitUpiAmount} to UPI Portion
                 </button>
               )}
             </div>
+          );
+        })()}
 
-            {customQrUrls.length > 1 && (
-              <div className="flex gap-1 mt-2 justify-center">
-                {customQrUrls.map((_, i) => (
+        {(mode === "CASH" || (mode === "PAYMENT" && paymentSubMode === "split" && activeSplitSection === "CASH")) && (() => {
+          const isSplitCash = mode === "PAYMENT" && paymentSubMode === "split" && activeSplitSection === "CASH";
+          const displayCashAmount = isSplitCash ? splitCashAmount : cashAmount;
+
+          return (
+            <div className="flex-1 flex flex-col bg-black p-2 overflow-y-auto">
+              {isSplitCash ? (
+                <div className="flex items-center justify-between mb-2 pb-1.5 border-b border-gray-800">
+                  <button
+                    onClick={() => setActiveSplitSection(null)}
+                    className="text-gray-400 hover:text-white transition-colors flex items-center gap-1 text-[11px] font-bold"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                    Back to Split
+                  </button>
+                  <span className="text-[10px] font-bold text-gray-500 tracking-wider uppercase">
+                    Split Cash Portion
+                  </span>
+                  <div className="w-12"></div>
+                </div>
+              ) : (
+                <div className="flex justify-between items-center mb-2">
+                  <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider flex items-center gap-1.5">
+                    Cash Calculator
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+
+                        const textLines = [
+                          "      DENOMINATION      ",
+                          "--------------------------------",
+                          `Bill Amt : Rs. ${displayCashAmount}`,
+                          "--------------------------------",
+                        ];
+
+                        const received = Object.entries(denominations)
+                          .filter(([_, count]: [string, any]) => (count as number) > 0)
+                          .sort(([a], [b]) => Number(b) - Number(a));
+
+                        const returned = Object.entries(denominations)
+                          .filter(([_, count]: [string, any]) => (count as number) < 0)
+                          .sort(([a], [b]) => Number(b) - Number(a));
+
+                        if (received.length > 0) {
+                          textLines.push("RECEIVED:");
+                          received.forEach(([val, count]: [string, any]) => {
+                            const numCount = count as number;
+                            const left = ` Rs.${val} x ${numCount}`;
+                            const right = `Rs.${Number(val) * numCount}`;
+                            const spaces = Math.max(0, 32 - left.length - right.length);
+                            textLines.push(`${left}${" ".repeat(spaces)}${right}`);
+                          });
+                        }
+
+                        if (returned.length > 0) {
+                          if (received.length > 0) textLines.push("--------------------------------");
+                          textLines.push("RETURNED:");
+                          returned.forEach(([val, count]: [string, any]) => {
+                            const numCount = Math.abs(count as number);
+                            const left = `-Rs.${val} x ${numCount}`;
+                            const right = `-Rs.${Number(val) * numCount}`;
+                            const spaces = Math.max(0, 32 - left.length - right.length);
+                            textLines.push(`${left}${" ".repeat(spaces)}${right}`);
+                          });
+                        }
+
+                        textLines.push("--------------------------------");
+                        textLines.push(`NET CASH : Rs. ${totalCash}`);
+                        const changeOrShort = totalCash >= displayCashAmount ? "CHANGE" : "SHORT";
+                        const diffAmt = Math.abs(totalCash - displayCashAmount);
+                        const lastLineLeft = `${changeOrShort}   :`;
+                        const lastLineRight = `Rs. ${diffAmt}`;
+                        const lastLineSpaces = Math.max(0, 32 - lastLineLeft.length - lastLineRight.length);
+                        textLines.push(`${lastLineLeft}${" ".repeat(lastLineSpaces)}${lastLineRight}`);
+
+                        if (totalCash > displayCashAmount) {
+                          textLines.push("--------------------------------");
+                          textLines.push("         RETURN CHANGE          ");
+                          let remaining = totalCash - displayCashAmount;
+                          const denoms = [500, 200, 100, 50, 20, 10, 5, 2, 1];
+                          for (const d of denoms) {
+                            if (remaining >= d) {
+                              const count = Math.floor(remaining / d);
+                              const left = `-Rs.${d} x ${count}`;
+                              const right = `-Rs.${d * count}`;
+                              const spaces = Math.max(
+                                0,
+                                32 - left.length - right.length,
+                              );
+                              textLines.push(
+                                `${left}${" ".repeat(spaces)}${right}`,
+                              );
+                              remaining -= count * d;
+                            }
+                          }
+                        }
+
+                        textLines.push("--------------------------------");
+                        textLines.push("           THANK YOU            ");
+
+                        setPreviewPrintInfo({ type: "cash", lines: textLines });
+                      }}
+                      className="bg-[#2c2c2c] text-white p-1 rounded ml-1 hover:bg-[#333] transition-colors"
+                      title="Print Denominations"
+                    >
+                      <Printer className="w-3 h-3" />
+                    </button>
+                  </div>
+                  <div className="text-[10px] bg-[#1e1e1e] text-white px-2 py-0.5 rounded font-bold">
+                    Bill: ₹{displayCashAmount}
+                  </div>
+                </div>
+              )}
+
+              {isSplitCash && (
+                <div className="bg-[#111] border border-gray-800 rounded-lg p-2 flex justify-between items-center mb-2 shrink-0">
+                  <span className="text-[10px] font-bold text-gray-400">Target Cash Portion:</span>
+                  <div className="relative flex items-center bg-black border border-gray-800 rounded overflow-hidden">
+                    <span className="absolute left-2 text-[10px] text-gray-500 font-bold">₹</span>
+                    <input
+                      type="number"
+                      value={splitCashAmount === 0 ? "" : splitCashAmount}
+                      onChange={(e) => setSplitCashAmount(parseFloat(e.target.value) || 0)}
+                      placeholder="0"
+                      className="w-24 bg-transparent text-xs text-[#3cc366] pl-5 pr-1.5 py-0.5 outline-none font-mono font-bold"
+                    />
+                  </div>
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-x-2 gap-y-1 mb-2 flex-1 overflow-y-auto pr-1">
+                {[500, 200, 100, 50, 20, 10, 5, 2, 1].map((val) => (
                   <div
-                    key={i}
-                    className={cn(
-                      "w-1.5 h-1.5 rounded-full",
-                      i === currentQrIndex ? "bg-blue-600" : "bg-blue-200",
-                    )}
-                  />
+                    key={val}
+                    className="flex justify-between items-center bg-[#1e1e1e] rounded px-1.5 py-0.5"
+                  >
+                    <div className="flex items-center gap-1.5">
+                      {val >= 5 ? (
+                        <div className={cn(
+                          "w-7 h-4 flex items-center justify-center text-[7px] font-bold shadow-sm border border-black/20 rounded-[2px]",
+                          {
+                            500: "bg-[#7a817b] text-white",
+                            200: "bg-[#f0a92f] text-black",
+                            100: "bg-[#7b6b8f] text-white",
+                            50: "bg-[#5dbcd2] text-black",
+                            20: "bg-[#b0c24a] text-black",
+                            10: "bg-[#764b36] text-white",
+                            5: "bg-[#5a9354] text-white",
+                          }[val]
+                        )}>
+                          {val}
+                        </div>
+                      ) : (
+                        <div className="bg-[#bcc6cc] text-black rounded-full w-4 h-4 flex items-center justify-center text-[7px] font-bold shadow-sm border border-black/20">
+                          {val}
+                        </div>
+                      )}
+                      <span className="text-[10px] font-bold text-white w-6">
+                        ₹{val}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        onClick={() => handleDenominationChange(val, -1)}
+                        className="bg-[#2c2c2c] rounded text-white w-4 h-4 flex items-center justify-center text-[10px] active:bg-[#333]"
+                      >
+                        -
+                      </button>
+                      <input
+                        type="number"
+                        value={denominations[val] === 0 ? "" : denominations[val]}
+                        onChange={(e) => {
+                          const newCount = parseInt(e.target.value) || 0;
+                          setDenominations((prev) => ({
+                            ...prev,
+                            [val]: newCount,
+                          }));
+                        }}
+                        className="text-[10px] font-mono text-white bg-transparent w-8 text-center outline-none border-b border-transparent focus:border-[#3cc366] hide-spin-button"
+                        placeholder="0"
+                      />
+                      <button
+                        onClick={() => handleDenominationChange(val, 1)}
+                        className="bg-[#3cc366] rounded text-black w-4 h-4 flex items-center justify-center text-[10px] active:bg-[#32a454]"
+                      >
+                        +
+                      </button>
+                    </div>
+                  </div>
                 ))}
               </div>
-            )}
 
-            <div className="flex flex-col items-center gap-1 mt-6 w-full max-w-[200px]">
-              <div className="flex items-center gap-1 text-gray-400 text-[10px] font-bold">
-                <QrCode className="w-3 h-3" />
-                UPI ID or Mobile No.
+              <div className="bg-[#1e1e1e] p-1.5 rounded flex flex-col gap-1 shrink-0">
+                <div className="flex justify-between items-center bg-[#2c2c2c] px-2 py-1 rounded">
+                  <span className="text-[10px] font-bold text-gray-400">
+                    Total Cash
+                  </span>
+                  <span className="text-sm font-bold text-[#3cc366]">
+                    ₹{totalCash}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center px-2">
+                  <span className="text-[10px] font-bold text-gray-400">
+                    Change Due
+                  </span>
+                  <span
+                    className={cn(
+                      "text-xs font-bold",
+                      totalCash >= displayCashAmount ? "text-white" : "text-red-400",
+                    )}
+                  >
+                    {totalCash >= displayCashAmount
+                      ? `₹${totalCash - displayCashAmount}`
+                      : `Need ₹${displayCashAmount - totalCash}`}
+                  </span>
+                </div>
               </div>
-              <input
-                type="text"
-                placeholder="saurabhgpt143-2@oksbi"
-                value={upiId}
-                onChange={(e) => onUpiIdChange(e.target.value)}
-                className="w-full text-[10px] bg-transparent border-b border-gray-700 rounded-none px-2 py-1 text-center outline-none focus:border-[#3cc366] placeholder:text-gray-600 text-white transition-colors"
-              />
-            </div>
-          </div>
-        )}
 
-        {mode === "CASH" && (
-          <div className="flex-1 flex flex-col bg-black p-2 overflow-y-auto">
-            <div className="flex justify-between items-center mb-2">
-              <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider flex items-center gap-1.5">
-                Cash Calculator
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-
-                      const textLines = [
-                        "      DENOMINATION      ",
-                        "--------------------------------",
-                        `Bill Amt : Rs. ${cashAmount}`,
-                        "--------------------------------",
-                      ];
-
-                      const received = Object.entries(denominations)
-                        .filter(([_, count]: [string, any]) => (count as number) > 0)
-                        .sort(([a], [b]) => Number(b) - Number(a));
-
-                      const returned = Object.entries(denominations)
-                        .filter(([_, count]: [string, any]) => (count as number) < 0)
-                        .sort(([a], [b]) => Number(b) - Number(a));
-
-                      if (received.length > 0) {
-                        textLines.push("RECEIVED:");
-                        received.forEach(([val, count]: [string, any]) => {
-                          const numCount = count as number;
-                          const left = ` Rs.${val} x ${numCount}`;
-                          const right = `Rs.${Number(val) * numCount}`;
-                          const spaces = Math.max(0, 32 - left.length - right.length);
-                          textLines.push(`${left}${" ".repeat(spaces)}${right}`);
-                        });
-                      }
-
-                      if (returned.length > 0) {
-                        if (received.length > 0) textLines.push("--------------------------------");
-                        textLines.push("RETURNED:");
-                        returned.forEach(([val, count]: [string, any]) => {
-                          const numCount = Math.abs(count as number);
-                          const left = `-Rs.${val} x ${numCount}`;
-                          const right = `-Rs.${Number(val) * numCount}`;
-                          const spaces = Math.max(0, 32 - left.length - right.length);
-                          textLines.push(`${left}${" ".repeat(spaces)}${right}`);
-                        });
-                      }
-
-                      textLines.push("--------------------------------");
-                      textLines.push(`NET CASH : Rs. ${totalCash}`);
-                      const changeOrShort = totalCash >= cashAmount ? "CHANGE" : "SHORT";
-                      const diffAmt = Math.abs(totalCash - cashAmount);
-                      const lastLineLeft = `${changeOrShort}   :`;
-                      const lastLineRight = `Rs. ${diffAmt}`;
-                      const lastLineSpaces = Math.max(0, 32 - lastLineLeft.length - lastLineRight.length);
-                      textLines.push(`${lastLineLeft}${" ".repeat(lastLineSpaces)}${lastLineRight}`);
-
-                      if (totalCash > cashAmount) {
-                      textLines.push("--------------------------------");
-                      textLines.push("         RETURN CHANGE          ");
-                      let remaining = totalCash - cashAmount;
+              {totalCash > displayCashAmount && (
+                <div className="bg-[#1e1e1e] p-2 rounded mt-2 border border-[#333] shrink-0">
+                  <div className="text-[10px] font-bold text-gray-500 mb-2 uppercase tracking-wider text-center">
+                    Return Denominations
+                  </div>
+                  <div className="flex flex-wrap gap-1.5 justify-center">
+                    {(() => {
+                      let remaining = totalCash - displayCashAmount;
+                      const result: { [key: number]: number } = {};
                       const denoms = [500, 200, 100, 50, 20, 10, 5, 2, 1];
                       for (const d of denoms) {
                         if (remaining >= d) {
                           const count = Math.floor(remaining / d);
-                          const left = `-Rs.${d} x ${count}`;
-                          const right = `-Rs.${d * count}`;
-                          const spaces = Math.max(
-                            0,
-                            32 - left.length - right.length,
-                          );
-                          textLines.push(
-                            `${left}${" ".repeat(spaces)}${right}`,
-                          );
+                          result[d] = count;
                           remaining -= count * d;
                         }
                       }
-                    }
-
-                    textLines.push("--------------------------------");
-                    textLines.push("           THANK YOU            ");
-
-                    setPreviewPrintInfo({ type: "cash", lines: textLines });
-                  }}
-                  className="bg-[#2c2c2c] text-white p-1 rounded ml-1 hover:bg-[#333] transition-colors"
-                  title="Print Denominations"
-                >
-                  <Printer className="w-3 h-3" />
-                </button>
-              </div>
-              <div className="text-[10px] bg-[#1e1e1e] text-white px-2 py-0.5 rounded font-bold">
-                Bill: ₹{cashAmount}
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-x-2 gap-y-1 mb-2 flex-1 overflow-y-auto pr-1">
-              {[500, 200, 100, 50, 20, 10, 5, 2, 1].map((val) => (
-                <div
-                  key={val}
-                  className="flex justify-between items-center bg-[#1e1e1e] rounded px-1.5 py-0.5"
-                >
-                  <div className="flex items-center gap-1.5">
-                    {val >= 5 ? (
-                      <div className={cn(
-                        "w-7 h-4 flex items-center justify-center text-[7px] font-bold shadow-sm border border-black/20 rounded-[2px]",
-                        {
-                          500: "bg-[#7a817b] text-white",
-                          200: "bg-[#f0a92f] text-black",
-                          100: "bg-[#7b6b8f] text-white",
-                          50: "bg-[#5dbcd2] text-black",
-                          20: "bg-[#b0c24a] text-black",
-                          10: "bg-[#764b36] text-white",
-                          5: "bg-[#5a9354] text-white",
-                        }[val]
-                      )}>
-                        {val}
-                      </div>
-                    ) : (
-                      <div className="bg-[#bcc6cc] text-black rounded-full w-4 h-4 flex items-center justify-center text-[7px] font-bold shadow-sm border border-black/20">
-                        {val}
-                      </div>
-                    )}
-                    <span className="text-[10px] font-bold text-white w-6">
-                      ₹{val}
-                    </span>
+                      return Object.entries(result)
+                        .filter(([_, count]) => count > 0)
+                        .sort(([a], [b]) => Number(b) - Number(a))
+                        .map(([val, count]) => (
+                          <div
+                            key={val}
+                            className="bg-[#2c2c2c] text-white px-2 py-1 rounded text-[10px] font-mono border border-gray-700 flex items-center gap-1 shadow-sm"
+                          >
+                            <span className="text-gray-400">₹{val}</span>
+                            <span className="text-[#3cc366]">×</span>
+                            <span className="font-bold">{count}</span>
+                          </div>
+                        ));
+                    })()}
                   </div>
-                  <div className="flex items-center gap-1.5">
+                </div>
+              )}
+
+              {isSplitCash && (
+                <div className="mt-2 flex flex-col gap-1.5 shrink-0">
+                  <button
+                    onClick={() => {
+                      setPaymentCash(splitCashAmount);
+                      setActiveSplitSection(null);
+                    }}
+                    className="w-full bg-[#3cc366] text-black font-bold py-2 rounded text-xs hover:bg-[#32a454] transition-colors cursor-pointer"
+                  >
+                    Apply ₹{splitCashAmount} to Cash Portion
+                  </button>
+                  {totalCash > 0 && totalCash !== splitCashAmount && (
                     <button
-                      onClick={() => handleDenominationChange(val, -1)}
-                      className="bg-[#2c2c2c] rounded text-white w-4 h-4 flex items-center justify-center text-[10px] active:bg-[#333]"
-                    >
-                      -
-                    </button>
-                    <input
-                      type="number"
-                      value={denominations[val] === 0 ? "" : denominations[val]}
-                      onChange={(e) => {
-                        const newCount = parseInt(e.target.value) || 0;
-                        setDenominations((prev) => ({
-                          ...prev,
-                          [val]: newCount,
-                        }));
+                      onClick={() => {
+                        setSplitCashAmount(totalCash);
+                        setPaymentCash(totalCash);
+                        setActiveSplitSection(null);
                       }}
-                      className="text-[10px] font-mono text-white bg-transparent w-8 text-center outline-none border-b border-transparent focus:border-[#3cc366] hide-spin-button"
-                      placeholder="0"
-                    />
-                    <button
-                      onClick={() => handleDenominationChange(val, 1)}
-                      className="bg-[#3cc366] rounded text-black w-4 h-4 flex items-center justify-center text-[10px] active:bg-[#32a454]"
+                      className="w-full bg-blue-600 text-white font-bold py-1.5 rounded text-[10px] hover:bg-blue-700 transition-colors cursor-pointer"
                     >
-                      +
+                      Use Counted Cash Total (₹{totalCash})
                     </button>
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            <div className="bg-[#1e1e1e] p-1.5 rounded flex flex-col gap-1 shrink-0">
-              <div className="flex justify-between items-center bg-[#2c2c2c] px-2 py-1 rounded">
-                <span className="text-[10px] font-bold text-gray-400">
-                  Total Cash
-                </span>
-                <span className="text-sm font-bold text-[#3cc366]">
-                  ₹{totalCash}
-                </span>
-              </div>
-              <div className="flex justify-between items-center px-2">
-                <span className="text-[10px] font-bold text-gray-400">
-                  Change Due
-                </span>
-                <span
-                  className={cn(
-                    "text-xs font-bold",
-                    totalCash >= cashAmount ? "text-white" : "text-red-400",
                   )}
-                >
-                  {totalCash >= cashAmount
-                    ? `₹${totalCash - cashAmount}`
-                    : `Need ₹${cashAmount - totalCash}`}
-                </span>
-              </div>
+                </div>
+              )}
             </div>
-
-            {totalCash > cashAmount && (
-              <div className="bg-[#1e1e1e] p-2 rounded mt-2 border border-[#333] shrink-0">
-                <div className="text-[10px] font-bold text-gray-500 mb-2 uppercase tracking-wider text-center">
-                  Return Denominations
-                </div>
-                <div className="flex flex-wrap gap-1.5 justify-center">
-                  {(() => {
-                    let remaining = totalCash - cashAmount;
-                    const result: { [key: number]: number } = {};
-                    const denoms = [500, 200, 100, 50, 20, 10, 5, 2, 1];
-                    for (const d of denoms) {
-                      if (remaining >= d) {
-                        const count = Math.floor(remaining / d);
-                        result[d] = count;
-                        remaining -= count * d;
-                      }
-                    }
-                    return Object.entries(result)
-                      .filter(([_, count]) => count > 0)
-                      .sort(([a], [b]) => Number(b) - Number(a))
-                      .map(([val, count]) => (
-                        <div
-                          key={val}
-                          className="bg-[#2c2c2c] text-white px-2 py-1 rounded text-[10px] font-mono border border-gray-700 flex items-center gap-1 shadow-sm"
-                        >
-                          <span className="text-gray-400">₹{val}</span>
-                          <span className="text-[#3cc366]">×</span>
-                          <span className="font-bold">{count}</span>
-                        </div>
-                      ));
-                  })()}
-                </div>
-              </div>
-            )}
-          </div>
-        )}
+          );
+        })()}
 
         {mode === "DASHBOARD" && (
           <div className="flex-1 flex flex-col bg-black p-2 lg:p-6 overflow-y-auto">
@@ -606,27 +1192,102 @@ export function POSScreen({
                   key={tx.id}
                   className="flex justify-between items-center text-[10px] lg:text-sm bg-[#1e1e1e] p-1 lg:p-3 rounded shadow-sm border border-[#333]"
                 >
-                  <span
-                    className={cn(
-                      "font-bold px-1 lg:px-2 py-0.5 rounded text-black",
-                      tx.type === "SALE" || tx.type === "BILL"
-                        ? "bg-[#3cc366]"
-                        : "bg-red-400",
+                  <div className="flex flex-col items-start gap-0.5">
+                    <div className="flex items-center gap-1">
+                      <span
+                        className={cn(
+                          "font-bold px-1 lg:px-2 py-0.5 rounded text-black",
+                          tx.type === "SALE" || tx.type === "BILL"
+                            ? "bg-[#3cc366]"
+                            : "bg-red-400",
+                        )}
+                      >
+                        {tx.type} ({tx.method})
+                      </span>
+                      {tx.remainingBalance && tx.remainingBalance > 0 ? (
+                        <span className="bg-amber-500 text-black text-[8px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wide">
+                          Partial
+                        </span>
+                      ) : null}
+                    </div>
+                    {tx.method === "PAYMENT" && tx.paymentDetails && (
+                      <span className="text-[8px] text-gray-500 font-mono pl-0.5">
+                        {[
+                          tx.paymentDetails.cash ? `Cash: ₹${tx.paymentDetails.cash}` : null,
+                          tx.paymentDetails.upi ? `UPI: ₹${tx.paymentDetails.upi}` : null,
+                          tx.paymentDetails.other ? `Other: ₹${tx.paymentDetails.other}` : null,
+                        ].filter(Boolean).join(" | ")}
+                      </span>
                     )}
-                  >
-                    {tx.type} ({tx.method})
-                  </span>
+                    {tx.method === "OTHER" && tx.otherMode && (
+                      <span className="text-[8px] text-gray-500 font-mono pl-0.5">
+                        Mode: {tx.otherMode} {tx.remarks ? `| ${tx.remarks}` : ""}
+                      </span>
+                    )}
+                    {tx.denominations && Object.values(tx.denominations).some((count) => count > 0) && (
+                      <div className="flex flex-wrap gap-1 mt-1 pl-0.5 max-w-[220px]">
+                        {Object.entries(tx.denominations)
+                          .filter(([_, count]) => count > 0)
+                          .sort(([a], [b]) => Number(b) - Number(a))
+                          .map(([val, count]) => (
+                            <span
+                              key={val}
+                              className="text-[8px] font-mono bg-black/40 border border-gray-800/80 text-gray-400 px-1 py-0.5 rounded"
+                            >
+                              ₹{val}×{count}
+                            </span>
+                          ))}
+                      </div>
+                    )}
+                  </div>
                   <div className="flex items-center gap-2 lg:gap-4">
-                    <span className="font-mono font-bold text-gray-300 lg:text-base">
-                      ₹{tx.amount}
-                    </span>
-                    <button
-                      onClick={() => setPreviewPrintInfo({ type: "tx", tx })}
-                      className="text-gray-400 hover:text-white transition-colors bg-[#2c2c2c] rounded p-1 lg:p-2 active:bg-[#444]"
-                      title="Print Preview / Print"
-                    >
-                      <Printer className="w-3 h-3 lg:w-4 lg:h-4" />
-                    </button>
+                    {deletingId === tx.id ? (
+                      <div className="flex items-center gap-1 lg:gap-1.5 bg-[#2a1b1b] border border-red-800/60 p-1 rounded animate-fade-in">
+                        <span className="text-[8px] lg:text-[10px] text-red-400 font-bold px-1">Delete?</span>
+                        <button
+                          onClick={() => {
+                            onDeleteTransaction(tx.id);
+                            setDeletingId(null);
+                          }}
+                          className="text-[9px] lg:text-xs bg-red-600 text-white hover:bg-red-700 font-bold px-2 py-0.5 rounded transition cursor-pointer"
+                        >
+                          Yes
+                        </button>
+                        <button
+                          onClick={() => setDeletingId(null)}
+                          className="text-[9px] lg:text-xs bg-gray-850 text-gray-300 hover:bg-gray-800 px-2 py-0.5 rounded transition cursor-pointer border border-gray-750"
+                        >
+                          No
+                        </button>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="flex flex-col items-end">
+                          <span className="font-mono font-bold text-gray-300 lg:text-base">
+                            ₹{tx.amount}
+                          </span>
+                          {tx.remainingBalance && tx.remainingBalance > 0 ? (
+                            <span className="text-[8px] font-bold text-amber-400 bg-amber-400/10 border border-amber-400/20 px-1 py-0.5 rounded mt-0.5 animate-pulse">
+                              Bal Due: ₹{tx.remainingBalance}
+                            </span>
+                          ) : null}
+                        </div>
+                        <button
+                          onClick={() => setPreviewPrintInfo({ type: "tx", tx })}
+                          className="text-gray-400 hover:text-white transition-colors bg-[#2c2c2c] rounded p-1 lg:p-2 active:bg-[#444]"
+                          title="Print Preview / Print"
+                        >
+                          <Printer className="w-3 h-3 lg:w-4 lg:h-4" />
+                        </button>
+                        <button
+                          onClick={() => setDeletingId(tx.id)}
+                          className="text-red-400 hover:text-red-300 hover:bg-red-950/30 transition-colors bg-[#2c2c2c] rounded p-1 lg:p-2 active:bg-red-900/40"
+                          title="Delete Transaction"
+                        >
+                          <Trash2 className="w-3 h-3 lg:w-4 lg:h-4" />
+                        </button>
+                      </>
+                    )}
                   </div>
                 </div>
               ))}
@@ -638,6 +1299,572 @@ export function POSScreen({
             </div>
           </div>
         )}
+
+        {mode === "HISTORY" && (
+          <div className="flex-1 flex flex-col bg-black p-2 lg:p-6 overflow-y-auto">
+            {/* Header */}
+            <div className="flex items-center justify-between mb-3 pb-2 border-b border-[#333]">
+              <button
+                onClick={() => setScreenMode("CALC")}
+                className="text-gray-400 hover:text-white transition-colors flex items-center gap-1 text-[11px] lg:text-sm font-bold cursor-pointer"
+              >
+                <ChevronLeft className="w-4 h-4" />
+                Back
+              </button>
+              <span className="text-[10px] lg:text-xs font-bold text-gray-400 tracking-wider uppercase">
+                Transaction History
+              </span>
+              <div className="text-[9px] lg:text-xs font-mono text-gray-500">
+                Count: {transactions.length}
+              </div>
+            </div>
+
+            {/* List */}
+            <div className="flex-1 space-y-1.5 lg:space-y-2 overflow-y-auto no-scrollbar pr-1">
+              {transactions.map((tx) => (
+                <div
+                  key={tx.id}
+                  className="flex justify-between items-center text-[10px] lg:text-sm bg-[#1e1e1e] p-2 rounded shadow-sm border border-[#333] animate-fade-in"
+                >
+                  <div className="flex flex-col items-start gap-1">
+                    <div className="flex items-center gap-1.5">
+                      <span
+                        className={cn(
+                          "font-bold px-1 lg:px-2 py-0.5 rounded text-black text-[9px] lg:text-xs",
+                          tx.type === "SALE" || tx.type === "BILL"
+                            ? "bg-[#3cc366]"
+                            : "bg-red-400",
+                        )}
+                      >
+                        {tx.type} ({tx.method})
+                      </span>
+                      {tx.remainingBalance && tx.remainingBalance > 0 ? (
+                        <span className="bg-amber-500 text-black text-[8px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wide">
+                          Partial
+                        </span>
+                      ) : null}
+                      <span className="text-[8px] text-gray-500 font-mono">
+                        {new Date(tx.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </span>
+                    </div>
+                    {tx.method === "PAYMENT" && tx.paymentDetails && (
+                      <span className="text-[8px] text-gray-500 font-mono pl-0.5">
+                        {[
+                          tx.paymentDetails.cash ? `Cash: ₹${tx.paymentDetails.cash}` : null,
+                          tx.paymentDetails.upi ? `UPI: ₹${tx.paymentDetails.upi}` : null,
+                          tx.paymentDetails.other ? `Other: ₹${tx.paymentDetails.other}` : null,
+                        ].filter(Boolean).join(" | ")}
+                      </span>
+                    )}
+                    {tx.method === "OTHER" && tx.otherMode && (
+                      <span className="text-[8px] text-gray-500 font-mono pl-0.5">
+                        Mode: {tx.otherMode} {tx.remarks ? `| ${tx.remarks}` : ""}
+                      </span>
+                    )}
+                    {tx.denominations && Object.values(tx.denominations).some((count) => count > 0) && (
+                      <div className="flex flex-wrap gap-1 mt-1 pl-0.5 max-w-[220px]">
+                        {Object.entries(tx.denominations)
+                          .filter(([_, count]) => count > 0)
+                          .sort(([a], [b]) => Number(b) - Number(a))
+                          .map(([val, count]) => (
+                            <span
+                              key={val}
+                              className="text-[8px] font-mono bg-black/40 border border-gray-800/80 text-gray-400 px-1 py-0.5 rounded"
+                            >
+                              ₹{val}×{count}
+                            </span>
+                          ))}
+                      </div>
+                    )}
+                    <span className="text-[8px] text-gray-600 font-mono pl-0.5">
+                      ID: {tx.id.toUpperCase()}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2 lg:gap-4">
+                    {deletingId === tx.id ? (
+                      <div className="flex items-center gap-1 lg:gap-1.5 bg-[#2a1b1b] border border-red-800/60 p-1 rounded animate-fade-in">
+                        <span className="text-[8px] lg:text-[10px] text-red-400 font-bold px-1">Delete?</span>
+                        <button
+                          onClick={() => {
+                            onDeleteTransaction(tx.id);
+                            setDeletingId(null);
+                          }}
+                          className="text-[9px] lg:text-xs bg-red-600 text-white hover:bg-red-700 font-bold px-2 py-0.5 rounded transition cursor-pointer"
+                        >
+                          Yes
+                        </button>
+                        <button
+                          onClick={() => setDeletingId(null)}
+                          className="text-[9px] lg:text-xs bg-gray-850 text-gray-300 hover:bg-gray-800 px-2 py-0.5 rounded transition cursor-pointer border border-gray-750"
+                        >
+                          No
+                        </button>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="flex flex-col items-end">
+                          <span className="font-mono font-bold text-gray-300 lg:text-base">
+                            ₹{tx.amount}
+                          </span>
+                          {tx.remainingBalance && tx.remainingBalance > 0 ? (
+                            <span className="text-[8px] font-bold text-amber-400 bg-amber-400/10 border border-amber-400/20 px-1 py-0.5 rounded mt-0.5 animate-pulse">
+                              Bal Due: ₹{tx.remainingBalance}
+                            </span>
+                          ) : null}
+                        </div>
+                        <button
+                          onClick={() => setPreviewPrintInfo({ type: "tx", tx })}
+                          className="text-gray-400 hover:text-white transition-colors bg-[#2c2c2c] rounded p-1 lg:p-2 active:bg-[#444]"
+                          title="Print Preview / Print"
+                        >
+                          <Printer className="w-3 h-3 lg:w-4 lg:h-4" />
+                        </button>
+                        <button
+                          onClick={() => setDeletingId(tx.id)}
+                          className="text-red-400 hover:text-red-300 hover:bg-red-950/30 transition-colors bg-[#2c2c2c] rounded p-1 lg:p-2 active:bg-red-900/40"
+                          title="Delete Transaction"
+                        >
+                          <Trash2 className="w-3 h-3 lg:w-4 lg:h-4" />
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </div>
+              ))}
+              {transactions.length === 0 && (
+                <div className="text-center text-[10px] lg:text-sm text-gray-600 py-10">
+                  No transactions yet.
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {mode === "PAYMENT" && !activeSplitSection && (
+          <div className="flex-1 flex flex-col bg-black p-3 text-white overflow-y-auto no-scrollbar">
+            {/* Header */}
+            <div className="flex items-center justify-between mb-3 pb-2 border-b border-gray-800">
+              <button
+                onClick={() => {
+                  if (paymentSubMode === "split") {
+                    setPaymentSubMode("menu");
+                  } else {
+                    setScreenMode("CALC");
+                  }
+                }}
+                className="text-gray-400 hover:text-white transition-colors flex items-center gap-1 text-[11px] font-bold"
+              >
+                <ChevronLeft className="w-4 h-4" />
+                {paymentSubMode === "split" ? "Back" : "Cancel"}
+              </button>
+              <span className="text-[10px] font-bold text-gray-500 tracking-wider uppercase">
+                {paymentSubMode === "split" ? "Split Payment" : "Payment Options"}
+              </span>
+              <div className="w-12"></div> {/* spacer */}
+            </div>
+
+            {/* Bill Info */}
+            <div className="bg-[#111] border border-gray-800 rounded-lg p-2.5 text-center mb-3">
+              <div className="text-[9px] text-gray-400 uppercase tracking-widest mb-0.5">
+                Total Bill Amount
+              </div>
+              <div className="text-2xl font-bold text-white font-sans">
+                ₹{paymentBillAmount.toLocaleString("en-IN")}
+              </div>
+            </div>
+
+            {paymentSubMode === "menu" ? (
+              /* Payment Options Selection Menu */
+              <div className="flex-1 flex flex-col justify-center gap-3">
+                <button
+                  onClick={() => onHandlePayment?.("CASH")}
+                  className="w-full bg-[#111] hover:bg-[#1a1a1a] border border-gray-800 hover:border-[#3cc366]/50 rounded-xl p-4 flex items-center justify-between transition-all group active:scale-[0.98] cursor-pointer"
+                >
+                  <div className="flex items-center gap-3.5 text-left">
+                    <div className="p-2.5 rounded-lg bg-[#3cc366]/10 text-[#3cc366] group-hover:bg-[#3cc366]/20 transition-colors">
+                      <Smartphone className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <div className="font-bold text-sm text-white">Cash Payment</div>
+                      <div className="text-[10px] text-gray-400 mt-0.5">Denomination calculator & change due</div>
+                    </div>
+                  </div>
+                  <ChevronRight className="w-4 h-4 text-gray-500 group-hover:text-white transition-colors" />
+                </button>
+
+                <button
+                  onClick={() => onHandlePayment?.("UPI")}
+                  className="w-full bg-[#111] hover:bg-[#1a1a1a] border border-gray-800 hover:border-[#3cc366]/50 rounded-xl p-4 flex items-center justify-between transition-all group active:scale-[0.98] cursor-pointer"
+                >
+                  <div className="flex items-center gap-3.5 text-left">
+                    <div className="p-2.5 rounded-lg bg-blue-500/10 text-blue-400 group-hover:bg-blue-500/20 transition-colors">
+                      <QrCode className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <div className="font-bold text-sm text-white">UPI QR Payment</div>
+                      <div className="text-[10px] text-gray-400 mt-0.5">Generate dynamic QR for instant scan</div>
+                    </div>
+                  </div>
+                  <ChevronRight className="w-4 h-4 text-gray-500 group-hover:text-white transition-colors" />
+                </button>
+
+                <button
+                  onClick={() => onHandlePayment?.("OTHER")}
+                  className="w-full bg-[#111] hover:bg-[#1a1a1a] border border-gray-800 hover:border-[#3cc366]/50 rounded-xl p-4 flex items-center justify-between transition-all group active:scale-[0.98] cursor-pointer"
+                >
+                  <div className="flex items-center gap-3.5 text-left">
+                    <div className="p-2.5 rounded-lg bg-purple-500/10 text-purple-400 group-hover:bg-purple-500/20 transition-colors">
+                      <FileText className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <div className="font-bold text-sm text-white">Other Payment</div>
+                      <div className="text-[10px] text-gray-400 mt-0.5">Card, Sodexo, Cheque, Coupons, etc.</div>
+                    </div>
+                  </div>
+                  <ChevronRight className="w-4 h-4 text-gray-500 group-hover:text-white transition-colors" />
+                </button>
+
+                <div className="h-[1px] bg-gray-800/85 my-1" />
+
+                <button
+                  onClick={() => setPaymentSubMode("split")}
+                  className="w-full bg-[#111] hover:bg-[#1a1a1a] border border-gray-800 hover:border-[#3cc366]/50 rounded-xl p-4 flex items-center justify-between transition-all group active:scale-[0.98] cursor-pointer"
+                >
+                  <div className="flex items-center gap-3.5 text-left">
+                    <div className="p-2.5 rounded-lg bg-amber-500/10 text-amber-400 group-hover:bg-amber-500/20 transition-colors">
+                      <Plus className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <div className="font-bold text-sm text-white">Split Payment</div>
+                      <div className="text-[10px] text-gray-400 mt-0.5">Combine Cash, UPI, & Other portions</div>
+                    </div>
+                  </div>
+                  <ChevronRight className="w-4 h-4 text-gray-500 group-hover:text-white transition-colors" />
+                </button>
+              </div>
+            ) : (
+              /* Split Allocators */
+              <>
+                <div className="flex-1 flex flex-col gap-2.5 min-h-0">
+                  {/* Cash Input Row */}
+                  <div className="bg-[#111] border border-gray-800/80 rounded-lg p-2 flex flex-col gap-1">
+                    <div className="flex justify-between items-center px-1">
+                      <span className="text-[10px] font-bold text-gray-400">Cash Portion</span>
+                      <div className="flex gap-1.5">
+                        <button
+                          onClick={activateCashPortion}
+                          className="text-[8px] bg-[#3cc366]/20 text-[#3cc366] hover:bg-[#3cc366]/30 transition border border-[#3cc366]/30 px-2 py-0.5 rounded font-bold"
+                        >
+                          Denominations
+                        </button>
+                        <button
+                          onClick={() => {
+                            const currentOthers = (Number(paymentUpi) || 0) + (Number(paymentOther) || 0);
+                            const diff = Math.max(0, paymentBillAmount - currentOthers);
+                            setPaymentCash(diff || "");
+                          }}
+                          className="text-[8px] bg-gray-800 text-gray-300 hover:bg-gray-750 transition border border-gray-700 px-2 py-0.5 rounded font-bold"
+                        >
+                          Set Remaining
+                        </button>
+                      </div>
+                    </div>
+                    <div 
+                      onClick={activateCashPortion}
+                      className="relative flex items-center bg-black border border-gray-800 rounded overflow-hidden cursor-pointer hover:border-gray-700 transition"
+                    >
+                      <span className="absolute left-2.5 text-[11px] text-gray-500 font-bold">₹</span>
+                      <input
+                        type="text"
+                        value={paymentCash === "" ? "0 (Tap to count/set)" : `${paymentCash} (Tap to edit)`}
+                        readOnly
+                        className="w-full bg-transparent text-[11px] text-[#3cc366] pl-6 pr-2.5 py-1.5 outline-none font-mono cursor-pointer font-bold"
+                      />
+                    </div>
+                  </div>
+
+                  {/* UPI Input Row */}
+                  <div className="bg-[#111] border border-gray-800/80 rounded-lg p-2 flex flex-col gap-1">
+                    <div className="flex justify-between items-center px-1">
+                      <span className="text-[10px] font-bold text-gray-400">UPI Portion</span>
+                      <div className="flex gap-1.5">
+                        <button
+                          onClick={activateUpiPortion}
+                          className="text-[8px] bg-[#3cc366]/20 text-[#3cc366] hover:bg-[#3cc366]/30 transition border border-[#3cc366]/30 px-2 py-0.5 rounded font-bold"
+                        >
+                          UPI QR
+                        </button>
+                        <button
+                          onClick={() => {
+                            const currentOthers = (Number(paymentCash) || 0) + (Number(paymentOther) || 0);
+                            const diff = Math.max(0, paymentBillAmount - currentOthers);
+                            setPaymentUpi(diff || "");
+                          }}
+                          className="text-[8px] bg-gray-800 text-gray-300 hover:bg-gray-750 transition border border-gray-700 px-2 py-0.5 rounded font-bold"
+                        >
+                          Set Remaining
+                        </button>
+                      </div>
+                    </div>
+                    <div 
+                      onClick={activateUpiPortion}
+                      className="relative flex items-center bg-black border border-gray-800 rounded overflow-hidden cursor-pointer hover:border-gray-700 transition"
+                    >
+                      <span className="absolute left-2.5 text-[11px] text-gray-500 font-bold">₹</span>
+                      <input
+                        type="text"
+                        value={paymentUpi === "" ? "0 (Tap to show QR/set)" : `${paymentUpi} (Tap to edit)`}
+                        readOnly
+                        className="w-full bg-transparent text-[11px] text-[#3cc366] pl-6 pr-2.5 py-1.5 outline-none font-mono cursor-pointer font-bold"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Other Input Row */}
+                  <div className="bg-[#111] border border-gray-800/80 rounded-lg p-2 flex flex-col gap-1">
+                    <div className="flex justify-between items-center px-1">
+                      <span className="text-[10px] font-bold text-gray-400">Other Portion</span>
+                      <div className="flex gap-1.5">
+                        <button
+                          onClick={activateOtherPortion}
+                          className="text-[8px] bg-[#3cc366]/20 text-[#3cc366] hover:bg-[#3cc366]/30 transition border border-[#3cc366]/30 px-2 py-0.5 rounded font-bold"
+                        >
+                          Details
+                        </button>
+                        <button
+                          onClick={() => {
+                            const currentOthers = (Number(paymentCash) || 0) + (Number(paymentUpi) || 0);
+                            const diff = Math.max(0, paymentBillAmount - currentOthers);
+                            setPaymentOther(diff || "");
+                          }}
+                          className="text-[8px] bg-gray-800 text-gray-300 hover:bg-gray-750 transition border border-gray-700 px-2 py-0.5 rounded font-bold"
+                        >
+                          Set Remaining
+                        </button>
+                      </div>
+                    </div>
+                    <div 
+                      onClick={activateOtherPortion}
+                      className="relative flex items-center bg-black border border-gray-800 rounded overflow-hidden cursor-pointer hover:border-gray-700 transition"
+                    >
+                      <span className="absolute left-2.5 text-[11px] text-gray-500 font-bold">₹</span>
+                      <input
+                        type="text"
+                        value={paymentOther === "" ? "0 (Tap to enter details/set)" : `${paymentOther} (Tap to edit) ${otherModeInput ? `[${otherModeInput}]` : ""}`}
+                        readOnly
+                        className="w-full bg-transparent text-[11px] text-[#3cc366] pl-6 pr-2.5 py-1.5 outline-none font-mono cursor-pointer font-bold"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Dynamic Status / Summary Block */}
+                <div className="mt-3 bg-[#111] border border-gray-800 rounded-lg p-2 flex flex-col gap-1 shrink-0">
+                  <div className="flex justify-between items-center text-[10px]">
+                    <span className="text-gray-400">Total Allocated:</span>
+                    <span className="font-bold text-white">₹{((Number(paymentCash) || 0) + (Number(paymentUpi) || 0) + (Number(paymentOther) || 0)).toLocaleString("en-IN")}</span>
+                  </div>
+                  <div className="flex justify-between items-center text-[10px]">
+                    <span className="text-gray-400">Status:</span>
+                    {(() => {
+                      const allocated = (Number(paymentCash) || 0) + (Number(paymentUpi) || 0) + (Number(paymentOther) || 0);
+                      const diff = paymentBillAmount - allocated;
+                      if (diff === 0) {
+                        return <span className="text-[#3cc366] font-bold flex items-center gap-1">● Fully Allocated</span>;
+                      } else if (diff > 0) {
+                        return <span className="text-amber-400 font-bold">● Need ₹{diff.toLocaleString("en-IN")} more</span>;
+                      } else {
+                        return <span className="text-red-400 font-bold">● Overallocated by ₹{Math.abs(diff).toLocaleString("en-IN")}</span>;
+                      }
+                    })()}
+                  </div>
+                </div>
+
+                {/* Action Buttons */}
+                <div className="mt-3 flex flex-col gap-2 shrink-0">
+                  <button
+                    onClick={() => {
+                      const allocated = (Number(paymentCash) || 0) + (Number(paymentUpi) || 0) + (Number(paymentOther) || 0);
+                      if (allocated === paymentBillAmount) {
+                        onConfirmPayment({
+                          cash: Number(paymentCash) || 0,
+                          upi: Number(paymentUpi) || 0,
+                          other: Number(paymentOther) || 0,
+                        }, otherModeInput || undefined, otherRemarksInput || undefined, denominations, 0);
+                      }
+                    }}
+                    disabled={((Number(paymentCash) || 0) + (Number(paymentUpi) || 0) + (Number(paymentOther) || 0)) !== paymentBillAmount}
+                    className={cn(
+                      "w-full py-2 rounded text-[11px] font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer",
+                      ((Number(paymentCash) || 0) + (Number(paymentUpi) || 0) + (Number(paymentOther) || 0)) === paymentBillAmount
+                        ? "bg-[#3cc366] text-black hover:bg-[#32a454] shadow"
+                        : "bg-gray-800 text-gray-500 cursor-not-allowed border border-gray-700/50"
+                    )}
+                  >
+                    Confirm Full Payment
+                  </button>
+
+                  {(() => {
+                    const allocated = (Number(paymentCash) || 0) + (Number(paymentUpi) || 0) + (Number(paymentOther) || 0);
+                    const remaining = paymentBillAmount - allocated;
+                    const isPartial = allocated > 0 && remaining > 0;
+                    if (!isPartial) return null;
+                    return (
+                      <button
+                        onClick={() => {
+                          onConfirmPayment({
+                            cash: Number(paymentCash) || 0,
+                            upi: Number(paymentUpi) || 0,
+                            other: Number(paymentOther) || 0,
+                          }, otherModeInput || undefined, otherRemarksInput || undefined, denominations, remaining);
+                        }}
+                        className="w-full py-2 rounded text-[11px] font-bold flex flex-col items-center justify-center bg-amber-500 text-black hover:bg-amber-600 shadow transition-all cursor-pointer border border-amber-600/30"
+                      >
+                        <span className="font-extrabold uppercase tracking-wide">Accept Partial Payment</span>
+                        <span className="text-[9px] opacity-90 font-medium">
+                          Paid: ₹{allocated.toLocaleString("en-IN")} | Bal Due: ₹{remaining.toLocaleString("en-IN")}
+                        </span>
+                      </button>
+                    );
+                  })()}
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
+        {(mode === "OTHER" || (mode === "PAYMENT" && paymentSubMode === "split" && activeSplitSection === "OTHER")) && (() => {
+          const isSplitOther = mode === "PAYMENT" && paymentSubMode === "split" && activeSplitSection === "OTHER";
+          const displayOtherAmount = isSplitOther ? splitOtherAmount : otherBillAmount;
+
+          return (
+            <div className="flex-1 flex flex-col bg-black p-3 text-white overflow-y-auto no-scrollbar animate-fade-in">
+              {/* Header */}
+              <div className="flex items-center justify-between mb-3 pb-2 border-b border-gray-800">
+                {isSplitOther ? (
+                  <button
+                    onClick={() => setActiveSplitSection(null)}
+                    className="text-gray-400 hover:text-white transition-colors flex items-center gap-1 text-[11px] font-bold"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                    Back to Split
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => setScreenMode("CALC")}
+                    className="text-gray-400 hover:text-white transition-colors flex items-center gap-1 text-[11px] font-bold"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                    Cancel
+                  </button>
+                )}
+                <span className="text-[10px] font-bold text-gray-500 tracking-wider uppercase">
+                  {isSplitOther ? "Split Other Portion" : "Other Payment"}
+                </span>
+                <div className="w-12"></div> {/* spacer */}
+              </div>
+
+              {/* Bill Info */}
+              <div className="bg-[#111] border border-gray-800 rounded-lg p-2.5 text-center mb-3">
+                <div className="text-[9px] text-gray-400 uppercase tracking-widest mb-0.5">
+                  Total Bill Amount
+                </div>
+                {isSplitOther ? (
+                  <div className="relative flex items-center justify-center bg-black border border-gray-800 rounded overflow-hidden max-w-[160px] mx-auto mt-1 shrink-0">
+                    <span className="absolute left-3 text-sm text-gray-500 font-bold">₹</span>
+                    <input
+                      type="number"
+                      value={splitOtherAmount === 0 ? "" : splitOtherAmount}
+                      onChange={(e) => setSplitOtherAmount(parseFloat(e.target.value) || 0)}
+                      placeholder="0"
+                      className="w-full bg-transparent text-sm text-white pl-7 pr-2 py-1 outline-none font-mono text-center font-bold"
+                    />
+                  </div>
+                ) : (
+                  <div className="text-2xl font-bold text-white font-sans">
+                    ₹{displayOtherAmount.toLocaleString("en-IN")}
+                  </div>
+                )}
+              </div>
+
+              {/* Input Form */}
+              <div className="flex-1 flex flex-col gap-3 min-h-0">
+                {/* Payment Mode */}
+                <div className="bg-[#111] border border-gray-800/80 rounded-lg p-3 flex flex-col gap-1.5">
+                  <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Payment Mode / Type</span>
+                  <input
+                    type="text"
+                    value={otherModeInput}
+                    onChange={(e) => setOtherModeInput(e.target.value)}
+                    placeholder="e.g. Sodexo, Cheque, Card, Coupon"
+                    className="w-full bg-black border border-gray-800 rounded text-xs text-white px-2.5 py-1.5 outline-none focus:border-[#3cc366] transition-colors"
+                  />
+                  {/* Quick suggestions */}
+                  <div className="flex flex-wrap gap-1.5 mt-1">
+                    {["Card", "Sodexo", "Cheque", "Coupon", "Credit"].map((suggestion) => (
+                      <button
+                        key={suggestion}
+                        onClick={() => setOtherModeInput(suggestion)}
+                        className={cn(
+                          "text-[9px] font-medium px-2 py-0.5 rounded transition border cursor-pointer",
+                          otherModeInput === suggestion
+                            ? "bg-[#3cc366]/10 text-[#3cc366] border-[#3cc366]/30"
+                            : "bg-gray-900 text-gray-400 border-gray-800 hover:bg-gray-850 hover:text-white"
+                        )}
+                      >
+                        {suggestion}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Remarks */}
+                <div className="bg-[#111] border border-gray-800/80 rounded-lg p-3 flex flex-col gap-1.5">
+                  <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wider">Pertinent Remarks</span>
+                  <textarea
+                    value={otherRemarksInput}
+                    onChange={(e) => setOtherRemarksInput(e.target.value)}
+                    placeholder="e.g. Ref No, Transaction ID, Authorization code"
+                    rows={3}
+                    className="w-full bg-black border border-gray-800 rounded text-xs text-white px-2.5 py-1.5 outline-none focus:border-[#3cc366] transition-colors resize-none"
+                  />
+                </div>
+              </div>
+
+              {/* Confirm Button */}
+              <div className="mt-3 flex gap-2 shrink-0">
+                {isSplitOther ? (
+                  <button
+                    onClick={() => {
+                      setPaymentOther(splitOtherAmount);
+                      setActiveSplitSection(null);
+                    }}
+                    className="w-full py-2 bg-[#3cc366] text-black font-bold rounded text-xs hover:bg-[#32a454] transition-all cursor-pointer"
+                  >
+                    Apply ₹{splitOtherAmount} to Other Portion
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => {
+                      if (otherModeInput.trim()) {
+                        onConfirmOtherPayment(otherModeInput.trim(), otherRemarksInput.trim());
+                      }
+                    }}
+                    disabled={!otherModeInput.trim()}
+                    className={cn(
+                      "w-full py-2 rounded text-[11px] font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer",
+                      otherModeInput.trim()
+                        ? "bg-[#3cc366] text-black hover:bg-[#32a454] shadow"
+                        : "bg-gray-800 text-gray-500 cursor-not-allowed border border-gray-700/50"
+                    )}
+                  >
+                    Confirm Payment
+                  </button>
+                )}
+              </div>
+            </div>
+          );
+        })()}
       </div>
 
       {/* Fullscreen QR Overlay */}
@@ -657,20 +1884,24 @@ export function POSScreen({
             <X className="w-6 h-6" />
           </button>
 
-          <div className="w-full max-w-sm aspect-square bg-white rounded-xl p-4 shadow-2xl relative flex items-center justify-center">
+          <div className="w-full max-w-sm bg-white rounded-xl p-6 shadow-2xl relative flex flex-col items-center justify-center gap-3">
             {customQrUrls.length > 0 && currentQrIndex < customQrUrls.length ? (
               <img
                 src={customQrUrls[currentQrIndex]}
                 alt="Custom QR"
-                className="w-full h-full object-contain"
+                className="w-full aspect-square object-contain"
               />
             ) : (
-              <div className="w-full aspect-square bg-white flex items-center justify-center p-4">
+              <div className="w-full aspect-square bg-white flex flex-col items-center justify-center p-2 upi-qr-wrapper gap-3">
                 <QRCode
-                  value={`upi://pay?pn=Merchant&am=${qrAmount}&cu=INR&pa=${computedUpiId}`}
+                  value={getUpiUrl(qrAmount)}
                   size={500}
                   style={{ height: "100%", width: "100%", maxWidth: "100%" }}
                 />
+                <div className="text-sm font-bold text-gray-800 flex items-center gap-1.5 mt-1 bg-transparent">
+                  <span className="w-2.5 h-2.5 rounded-full bg-[#3cc366] animate-pulse shrink-0"></span>
+                  <span>Verified: {retrievedName}</span>
+                </div>
               </div>
             )}
 
@@ -704,6 +1935,23 @@ export function POSScreen({
 
           <div className="mt-8 text-white font-bold text-3xl tracking-wider drop-shadow-md">
             ₹{qrAmount}
+          </div>
+
+          <div className="mt-4 flex gap-3">
+            <button
+              onClick={() => handleShareQr(qrAmount)}
+              className="flex items-center justify-center gap-2 bg-white/10 hover:bg-white/20 active:bg-white/30 text-white border border-white/10 px-5 py-2 rounded-lg text-sm font-bold transition shadow-lg cursor-pointer backdrop-blur-sm"
+            >
+              <Share2 className="w-4 h-4 text-[#3cc366]" />
+              <span>{shareStatus || "Share QR"}</span>
+            </button>
+            <button
+              onClick={() => handlePrintQr(qrAmount)}
+              className="flex items-center justify-center gap-2 bg-white/10 hover:bg-white/20 active:bg-white/30 text-white border border-white/10 px-5 py-2 rounded-lg text-sm font-bold transition shadow-lg cursor-pointer backdrop-blur-sm"
+            >
+              <Printer className="w-4 h-4 text-blue-400" />
+              <span>Print QR</span>
+            </button>
           </div>
 
           {customQrUrls.length > 1 && (
@@ -746,110 +1994,129 @@ export function POSScreen({
             Print Preview
           </div>
 
-          <div className="bg-white text-black p-4 pb-6 w-full max-w-[280px] font-mono text-[10px] sm:text-xs overflow-y-auto max-h-[60vh] receipt-edge shadow-2xl flex flex-col gap-1 whitespace-pre-wrap">
-            {(() => {
-              if (previewPrintInfo.type === "tx" && previewPrintInfo.tx) {
-                const tx = previewPrintInfo.tx;
-                return [
-                  "      UNIVERSAL SMART POS      ",
-                  "--------------------------------",
-                  `Date: ${new Date(tx.timestamp).toLocaleString()}`,
-                  `Type: ${tx.type}`,
-                  `Mode: ${tx.method}`,
-                  `Tx ID: ${tx.id.toUpperCase()}`,
-                  "--------------------------------",
-                  `TOTAL: Rs ${tx.amount}`,
-                  "--------------------------------",
-                  "           THANK YOU            ",
-                ].join("\n");
-              }
-              if (previewPrintInfo.lines) {
-                return previewPrintInfo.lines.join("\n");
-              }
-              return "";
-            })()}
+          <div className="bg-white text-black p-4 pb-6 w-full max-w-[280px] font-mono text-[10px] sm:text-xs overflow-y-auto max-h-[60vh] receipt-edge shadow-2xl flex flex-col gap-1 items-center">
+            <div className="w-full whitespace-pre-wrap text-left">
+              {(() => {
+                if (previewPrintInfo.type === "tx" && previewPrintInfo.tx) {
+                  return getTxLines(previewPrintInfo.tx).join("\n");
+                }
+                if (previewPrintInfo.lines) {
+                  return previewPrintInfo.lines.join("\n");
+                }
+                return "";
+              })()}
+            </div>
+
+            {/* UPI QR Code inside receipt preview (displayed exclusively for UPI transactions) */}
+            {previewPrintInfo.type === "tx" && previewPrintInfo.tx && previewPrintInfo.tx.method === "UPI" && (
+              <div className="mt-4 flex flex-col items-center gap-1 border-t border-dashed border-gray-400 pt-4 w-full receipt-qr-section bg-transparent">
+                <div className="text-[10px] font-bold tracking-wider mb-1 uppercase text-black bg-transparent">UPI Scan & Pay</div>
+                <div className="bg-white p-2 border border-gray-200 rounded">
+                  <QRCode
+                    value={getUpiUrl(previewPrintInfo.tx.amount)}
+                    size={110}
+                    style={{ height: "110px", width: "110px" }}
+                  />
+                </div>
+                <div className="text-[9px] font-bold text-black bg-transparent mt-0.5">{retrievedName}</div>
+                <div className="text-[8px] text-gray-600 bg-transparent">₹{previewPrintInfo.tx.amount}</div>
+              </div>
+            )}
           </div>
 
           <div className="mt-8 flex flex-col gap-3 w-full max-w-[280px]">
-            <button
-              onClick={() => {
-                const lines = previewPrintInfo.lines || [
-                  "         UNIVERSE POS         ",
-                  "--------------------------------",
-                  `Date: ${new Date(previewPrintInfo.tx?.timestamp || Date.now()).toLocaleString()}`,
-                  `Type: ${previewPrintInfo.tx?.type || ""}`,
-                  `Mode: ${previewPrintInfo.tx?.method || ""}`,
-                  `Tx ID: ${previewPrintInfo.tx?.id.toUpperCase() || ""}`,
-                  "--------------------------------",
-                  `TOTAL: Rs ${previewPrintInfo.tx?.amount || 0}`,
-                  "--------------------------------",
-                  "           THANK YOU            ",
-                  "        Mob: 9752556113         "
-                ];
-                
-                const printWindow = window.open("", "_blank");
-                if (printWindow) {
-                  const htmlLines = lines
-                    .map((l) => l.replace(/ /g, "&nbsp;"))
-                    .map(l => {
-                      if (l.includes("UNIVERSE&nbsp;POS") || l.includes("TOTAL:")) {
-                        return `<strong style="font-size: 16px;">${l}</strong>`;
-                      }
-                      return l;
-                    })
-                    .join("<br/>");
-                  const printContent = `
-                    <html>
-                      <head>
-                        <style>
-                          @page { margin: 0; size: 58mm auto; }
-                          body { font-family: monospace; padding: 5mm; margin: 0; color: #000; width: 48mm; font-size: 12px; }
-                        </style>
-                      </head>
-                      <body><div>${htmlLines}</div><script>window.onload=()=>{setTimeout(()=>{window.print();window.close();},250)}</script></body>
-                    </html>
-                  `;
-                  printWindow.document.write(printContent);
-                  printWindow.document.close();
-                }
-                setPreviewPrintInfo(null);
-              }}
-              className="bg-[#3cc366] text-black px-4 py-3 rounded font-bold uppercase tracking-wider text-xs flex items-center gap-3 hover:bg-[#32a454] transition-transform active:scale-95"
-            >
-              <Printer className="w-5 h-5 opacity-80" />
-              <div className="flex flex-col items-start bg-transparent">
-                <span>Print</span>
-                <span className="text-[9px] opacity-70 normal-case tracking-normal">System or WiFi Printer</span>
-              </div>
-            </button>
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                onClick={() => {
+                  const lines = previewPrintInfo.lines || (previewPrintInfo.tx ? getTxLines(previewPrintInfo.tx) : []);
+                  
+                  // Try to get the QR code SVG if this is a transaction
+                  let qrImgHtml = "";
+                  if (previewPrintInfo.type === "tx" && previewPrintInfo.tx && previewPrintInfo.tx.method === "UPI") {
+                    const svgEl = document.querySelector(".receipt-qr-section svg");
+                    if (svgEl) {
+                      const svgString = new XMLSerializer().serializeToString(svgEl);
+                      const svgBlob = new Blob([svgString], { type: "image/svg+xml;charset=utf-8" });
+                      const qrImgSrc = URL.createObjectURL(svgBlob);
+                      qrImgHtml = `
+                        <div style="display: flex; flex-direction: column; align-items: center; text-align: center; justify-content: center; margin-top: 15px; border-top: 1px dashed #000; padding-top: 15px; background-color: transparent;">
+                          <div style="font-size: 10px; font-weight: bold; margin-bottom: 5px; text-transform: uppercase;">UPI SCAN & PAY</div>
+                          <div style="background: white; padding: 4px; border: 1px solid #000; display: inline-block; margin: 0 auto;">
+                            <img src="${qrImgSrc}" style="width: 110px; height: 110px; display: block;" />
+                          </div>
+                          <div style="font-size: 9px; font-weight: bold; margin-top: 4px;">Verified: ${retrievedName}</div>
+                          <div style="font-size: 9px; margin-top: 2px;">₹${previewPrintInfo.tx.amount}</div>
+                        </div>
+                      `;
+                    }
+                  }
 
-            <button
-              onClick={() => {
-                const lines = previewPrintInfo.lines || [
-                  "         UNIVERSE POS         ",
-                  "--------------------------------",
-                  `Date: ${new Date(previewPrintInfo.tx?.timestamp || Date.now()).toLocaleString()}`,
-                  `Type: ${previewPrintInfo.tx?.type}`,
-                  `Mode: ${previewPrintInfo.tx?.method}`,
-                  `Tx ID: ${previewPrintInfo.tx?.id.toUpperCase()}`,
-                  "--------------------------------",
-                  `TOTAL: Rs ${previewPrintInfo.tx?.amount}`,
-                  "--------------------------------",
-                  "           THANK YOU            ",
-                  "        Mob: 9752556113         "
-                ];
-                const intentUri = `intent:#Intent;action=android.intent.action.SEND;type=text/plain;S.android.intent.extra.TEXT=${encodeURIComponent(lines.join("\n"))};package=com.phucynwa.mini.portable.cat.printer;end;`;
-                window.location.href = intentUri;
-                setPreviewPrintInfo(null);
-              }}
-              className="bg-[#2c2c2c] text-white border border-[#444] px-4 py-3 rounded font-bold uppercase tracking-wider text-xs flex items-center gap-3 hover:bg-[#333] transition-transform active:scale-95"
-            >
-              <Smartphone className="w-5 h-5 text-blue-400" />
-              <div className="flex flex-col items-start bg-transparent">
-                <span>Cat Printer</span>
-                <span className="text-[9px] opacity-70 normal-case tracking-normal text-gray-400">Mini Portable Thermal App</span>
-              </div>
-            </button>
+                  const printWindow = window.open("", "_blank");
+                  if (printWindow) {
+                    const htmlLines = lines
+                      .map((l) => l.replace(/ /g, "&nbsp;"))
+                      .map(l => {
+                        if (l.includes("UNIVERSE&nbsp;POS") || l.includes("TOTAL:")) {
+                          return `<strong style="font-size: 16px;">${l}</strong>`;
+                        }
+                        return l;
+                      })
+                      .join("<br/>");
+                    const printContent = `
+                      <html>
+                        <head>
+                          <style>
+                            @page { margin: 0; size: 58mm auto; }
+                            body { font-family: monospace; padding: 5mm; margin: 0; color: #000; width: 48mm; font-size: 12px; }
+                          </style>
+                        </head>
+                        <body>
+                          <div>${htmlLines}</div>
+                          ${qrImgHtml}
+                          <script>window.onload=()=>{setTimeout(()=>{window.print();window.close();},250)}</script>
+                        </body>
+                      </html>
+                    `;
+                    printWindow.document.write(printContent);
+                    printWindow.document.close();
+                  }
+                  setPreviewPrintInfo(null);
+                }}
+                className="bg-[#3cc366] text-black p-3 rounded font-bold uppercase tracking-wider text-[11px] flex flex-col items-center justify-center gap-1.5 hover:bg-[#32a454] transition-colors"
+              >
+                <Printer className="w-5 h-5 opacity-80" />
+                <div className="flex flex-col items-center bg-transparent">
+                  <span>System Print</span>
+                  <span className="text-[8px] opacity-70 normal-case tracking-normal">WiFi / USB</span>
+                </div>
+              </button>
+
+              <button
+                onClick={() => {
+                  const lines = previewPrintInfo.lines || (previewPrintInfo.tx ? getTxLines(previewPrintInfo.tx) : []);
+                  let finalLines = [...lines];
+                  if (previewPrintInfo.type === "tx" && previewPrintInfo.tx && previewPrintInfo.tx.method === "UPI") {
+                    finalLines.push("--------------------------------");
+                    finalLines.push("   Payee:  " + retrievedName);
+                    finalLines.push("   UPI ID: " + computedUpiId);
+                    finalLines.push("   Amount: Rs " + previewPrintInfo.tx.amount);
+                    finalLines.push("--------------------------------");
+                  }
+                  const intentUri = `intent:#Intent;action=android.intent.action.SEND;type=text/plain;S.android.intent.extra.TEXT=${encodeURIComponent(finalLines.join("\n"))};package=com.dolewa;end;`;
+                  window.location.href = intentUri;
+                  setPreviewPrintInfo(null);
+                }}
+                className="bg-[#1e1e1e] text-white border border-[#444] p-3 rounded font-bold uppercase tracking-wider text-[11px] flex flex-col items-center justify-center gap-1.5 hover:bg-[#2c2c2c] transition-colors"
+              >
+                <Smartphone className="w-5 h-5 text-blue-400" />
+                <div className="flex flex-col items-center bg-transparent">
+                  <span>Dolewa Print</span>
+                  <span className="text-[8px] opacity-70 normal-case tracking-normal text-gray-400">Android App</span>
+                </div>
+              </button>
+            </div>
+
+
 
             <div className="grid grid-cols-2 gap-3">
                <button
@@ -857,7 +2124,17 @@ export function POSScreen({
                   try {
                     let blob: Blob;
                     if (previewPrintInfo.type === "tx" && previewPrintInfo.tx) {
-                      blob = await generateReceiptImage(previewPrintInfo.tx);
+                      const qrDataUrl = (() => {
+                        if (previewPrintInfo.tx.method !== "UPI") return undefined;
+                        const svgEl = document.querySelector(".receipt-qr-section svg");
+                        if (svgEl) {
+                          const svgString = new XMLSerializer().serializeToString(svgEl);
+                          const svgBlob = new Blob([svgString], { type: "image/svg+xml;charset=utf-8" });
+                          return URL.createObjectURL(svgBlob);
+                        }
+                        return undefined;
+                      })();
+                      blob = await generateReceiptImage(previewPrintInfo.tx, qrDataUrl, retrievedName);
                     } else if (previewPrintInfo.lines) {
                       blob = await generateImageFromLines(previewPrintInfo.lines);
                     } else {
@@ -915,7 +2192,17 @@ export function POSScreen({
                     "           THANK YOU            ",
                     "        Mob: 9752556113         "
                   ];
-                  const text = lines.join("\n");
+                  let finalLines = [...lines];
+                  if (previewPrintInfo.type === "tx" && previewPrintInfo.tx && previewPrintInfo.tx.method === "UPI") {
+                    // Inject UPI metadata beautifully
+                    finalLines.splice(finalLines.length - 3, 0, 
+                      "--------------------------------",
+                      "Payee:  " + retrievedName,
+                      "UPI ID: " + computedUpiId,
+                      "Amount: Rs " + previewPrintInfo.tx.amount
+                    );
+                  }
+                  const text = finalLines.join("\n");
                   if (navigator.share) {
                     try {
                       await navigator.share({ text });

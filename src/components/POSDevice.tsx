@@ -114,7 +114,7 @@ export function POSDevice() {
 
     // Payments
     if (
-      ["CASH", "UPI", "CARD", "UDHAAR", "PAYMENT REQUIRED"].includes(action)
+      ["CASH", "UPI", "OTHER", "UDHAAR", "PAYMENT REQUIRED", "PAYMENT"].includes(action)
     ) {
       pos.handlePayment(action as any);
       return;
@@ -206,12 +206,22 @@ export function POSDevice() {
           onTransactionIdChange={pos.setTransactionId}
           upiId={pos.upiId}
           onUpiIdChange={pos.setUpiId}
+          upiNote={pos.upiNote}
+          onUpiNoteChange={pos.setUpiNote}
           customQrUrls={pos.customQrUrls}
           onCustomQrUrlsChange={pos.setCustomQrUrls}
           currentQrIndex={pos.currentQrIndex}
           onCurrentQrIndexChange={pos.setCurrentQrIndex}
           stats={pos.stats}
           memory={pos.memory}
+          paymentBillAmount={pos.paymentBillAmount}
+          otherBillAmount={pos.otherBillAmount}
+          onConfirmPayment={pos.confirmPayment}
+          onConfirmOtherPayment={pos.confirmOtherPayment}
+          onUpdateTransactionDenominations={pos.updateLastTransactionDenominations}
+          onHandlePayment={pos.handlePayment}
+          setScreenMode={pos.setScreenMode}
+          onDeleteTransaction={pos.deleteTransaction}
         />
       </div>
 

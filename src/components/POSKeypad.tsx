@@ -22,9 +22,7 @@ const POS_KEYS: KeyConfig[] = [
 ];
 
 const PAYMENT_KEYS: KeyConfig[] = [
-  { label: "CASH", action: "CASH", type: "pos" },
-  { label: "UPI", action: "UPI", type: "pos" },
-  { label: "CARD", action: "CARD", type: "pos" },
+  { label: "PAYMENT", action: "PAYMENT", type: "pos" },
 ];
 
 const NUMPAD_KEYS: KeyConfig[][] = [

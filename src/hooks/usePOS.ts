@@ -14,10 +14,34 @@ export function usePOS() {
   >("ESTIMATE");
   const [qrAmount, setQrAmount] = useState(0);
   const [upiId, setUpiId] = useState("");
+  const [upiNote, setUpiNoteState] = useState("");
+
+  const setUpiNote = useCallback((note: string) => {
+    setUpiNoteState(note);
+    setTransactions((prev) => {
+      if (prev.length > 0 && prev[0].method === "UPI") {
+        return prev.map((tx, idx) => {
+          if (idx === 0) {
+            return { ...tx, remarks: note || undefined };
+          }
+          return tx;
+        });
+      }
+      return prev;
+    });
+  }, []);
+
+  useEffect(() => {
+    if (screenMode === "CALC") {
+      setUpiNoteState("");
+    }
+  }, [screenMode]);
   const [customQrUrls, setCustomQrUrls] = useState<string[]>([]);
   const [currentQrIndex, setCurrentQrIndex] = useState(0);
 
   const [cashAmount, setCashAmount] = useState(0);
+  const [paymentBillAmount, setPaymentBillAmount] = useState(0);
+  const [otherBillAmount, setOtherBillAmount] = useState(0);
 
   const [shouldResetDisplay, setShouldResetDisplay] = useState(false);
   const [transactionId, setTransactionId] = useState("");
@@ -153,7 +177,7 @@ export function usePOS() {
   );
 
   const handlePayment = useCallback(
-    (method: "CASH" | "UPI" | "CARD" | "UDHAAR" | "PAYMENT REQUIRED") => {
+    (method: "CASH" | "UPI" | "OTHER" | "UDHAAR" | "PAYMENT REQUIRED" | "PAYMENT") => {
       const amt = _evaluateCurrent();
       if (amt <= 0) return;
 
@@ -163,6 +187,14 @@ export function usePOS() {
       } else if (method === "CASH") {
         setCashAmount(amt);
         setScreenMode("CASH");
+      } else if (method === "PAYMENT") {
+        setPaymentBillAmount(amt);
+        setScreenMode("PAYMENT");
+        return; // Don't record transaction yet!
+      } else if (method === "OTHER") {
+        setOtherBillAmount(amt);
+        setScreenMode("OTHER");
+        return; // Don't record transaction yet!
       } else {
         setScreenMode("CALC");
       }
@@ -173,6 +205,7 @@ export function usePOS() {
         method,
         amount: amt,
         timestamp: Date.now(),
+        remarks: method === "UPI" && upiNote ? upiNote : undefined,
       };
 
       setTransactions((prev) => [newTx, ...prev]);
@@ -183,9 +216,86 @@ export function usePOS() {
       setShouldResetDisplay(true);
       setTransactionId("");
       setPendingTxType("ESTIMATE"); // default back to estimate
+      if (method === "UPI") {
+        setUpiNote("");
+      }
     },
-    [expression, pendingTxType, transactionId],
+    [expression, pendingTxType, transactionId, upiNote],
   );
+
+  const confirmPayment = useCallback(
+    (paymentDetails: { cash: number; upi: number; other: number }, otherMode?: string, remarks?: string, denominations?: Record<number, number>, remainingBalance?: number) => {
+      const amt = paymentBillAmount;
+      if (amt <= 0) return;
+
+      const newTx: Transaction = {
+        id: transactionId || Math.random().toString(36).substring(2, 9),
+        type: pendingTxType,
+        method: "PAYMENT",
+        amount: amt,
+        timestamp: Date.now(),
+        paymentDetails,
+        otherMode,
+        remarks,
+        denominations,
+        remainingBalance,
+      };
+
+      setTransactions((prev) => [newTx, ...prev]);
+
+      // reset for next
+      setExpression("");
+      setDisplayValue("0");
+      setShouldResetDisplay(true);
+      setTransactionId("");
+      setPendingTxType("ESTIMATE"); // default back to estimate
+      setPaymentBillAmount(0);
+      setScreenMode("CALC");
+    },
+    [paymentBillAmount, pendingTxType, transactionId],
+  );
+
+  const confirmOtherPayment = useCallback(
+    (otherMode: string, remarks: string) => {
+      const amt = otherBillAmount;
+      if (amt <= 0) return;
+
+      const newTx: Transaction = {
+        id: transactionId || Math.random().toString(36).substring(2, 9),
+        type: pendingTxType,
+        method: "OTHER",
+        amount: amt,
+        timestamp: Date.now(),
+        otherMode,
+        remarks,
+      };
+
+      setTransactions((prev) => [newTx, ...prev]);
+
+      // reset for next
+      setExpression("");
+      setDisplayValue("0");
+      setShouldResetDisplay(true);
+      setTransactionId("");
+      setPendingTxType("ESTIMATE"); // default back to estimate
+      setOtherBillAmount(0);
+      setScreenMode("CALC");
+    },
+    [otherBillAmount, pendingTxType, transactionId],
+  );
+
+  const updateLastTransactionDenominations = useCallback((denoms: Record<number, number>) => {
+    setTransactions((prev) => {
+      if (prev.length === 0) return prev;
+      const copy = [...prev];
+      copy[0] = { ...copy[0], denominations: denoms };
+      return copy;
+    });
+  }, []);
+
+  const deleteTransaction = useCallback((id: string) => {
+    setTransactions((prev) => prev.filter((tx) => tx.id !== id));
+  }, []);
 
   const stats = useMemo(() => {
     let sales = 0;
@@ -210,11 +320,19 @@ export function usePOS() {
     setTransactionId,
     upiId,
     setUpiId,
+    upiNote,
+    setUpiNote,
     customQrUrls,
     setCustomQrUrls,
     currentQrIndex,
     setCurrentQrIndex,
     stats,
+    paymentBillAmount,
+    otherBillAmount,
+    confirmPayment,
+    confirmOtherPayment,
+    updateLastTransactionDenominations,
+    deleteTransaction,
     handleMath,
     handleMemory,
     handleTax,

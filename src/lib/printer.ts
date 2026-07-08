@@ -1,12 +1,14 @@
 import { Transaction } from "../types";
 
-export const generateImageFromLines = (lines: string[]): Promise<Blob> => {
+export const generateImageFromLines = (lines: string[], qrDataUrl?: string, payeeName?: string): Promise<Blob> => {
   return new Promise((resolve) => {
     const canvas = document.createElement("canvas");
     // Mini Portable Cat Printer typical print width is 384 dots (48mm print width at 8 dots/mm)
     canvas.width = 384;
-    // Calculate required height based on number of lines
-    canvas.height = Math.max(400, lines.length * 30 + 80); 
+    // Calculate required height based on number of lines and optional QR code
+    const baseHeight = lines.length * 30 + 80;
+    canvas.height = qrDataUrl ? baseHeight + (payeeName ? 235 : 210) : Math.max(400, baseHeight);
+    
     const ctx = canvas.getContext("2d");
     if (!ctx) throw new Error("Could not get canvas context");
 
@@ -36,7 +38,7 @@ export const generateImageFromLines = (lines: string[]): Promise<Blob> => {
       } else if (line.includes("NET CASH")) {
         ctx.font = "bold 20px monospace";
         ctx.fillText(line.trim(), 20, currentY);
-        currentY += 28;
+        currentY += 30;
       } else {
         ctx.font = "18px monospace";
         ctx.fillText(line, 20, currentY);
@@ -44,27 +46,127 @@ export const generateImageFromLines = (lines: string[]): Promise<Blob> => {
       }
     });
 
-    canvas.toBlob((blob) => {
-      resolve(blob!);
-    }, "image/png");
+    const completeAndResolve = () => {
+      canvas.toBlob((blob) => {
+        resolve(blob!);
+      }, "image/png");
+    };
+
+    if (qrDataUrl) {
+      const img = new Image();
+      img.onload = () => {
+        // Draw centered dashed line
+        ctx.strokeStyle = "#000000";
+        ctx.lineWidth = 2;
+        ctx.setLineDash([5, 5]);
+        ctx.beginPath();
+        ctx.moveTo(20, currentY);
+        ctx.lineTo(canvas.width - 20, currentY);
+        ctx.stroke();
+        currentY += 25;
+
+        // Draw title
+        ctx.font = "bold 16px monospace";
+        ctx.textAlign = "center";
+        ctx.fillText("UPI SCAN & PAY", canvas.width / 2, currentY);
+        currentY += 15;
+
+        // Draw QR Image
+        ctx.drawImage(img, (canvas.width - 150) / 2, currentY, 150, 150);
+        
+        if (payeeName) {
+          currentY += 165;
+          ctx.font = "bold 13px monospace";
+          ctx.textAlign = "center";
+          ctx.fillText(payeeName, canvas.width / 2, currentY);
+        }
+
+        completeAndResolve();
+      };
+      img.onerror = () => {
+        completeAndResolve();
+      };
+      img.src = qrDataUrl;
+    } else {
+      completeAndResolve();
+    }
   });
 };
 
-export const generateReceiptImage = (tx: Transaction): Promise<Blob> => {
+export const generateReceiptImage = (tx: Transaction, qrDataUrl?: string, payeeName?: string): Promise<Blob> => {
   const lines = [
     "         UNIVERSE POS         ",
     "------------------------------",
     `Date: ${new Date(tx.timestamp).toLocaleString()}`,
     `Type: ${tx.type}`,
-    `Mode: ${tx.method}`,
-    `Tx ID: ${tx.id.toUpperCase()}`,
-    "------------------------------",
-    `TOTAL: Rs ${tx.amount}`,
-    "------------------------------",
-    "          Thank You!          ",
-    "      Mob: 9752556113         "
   ];
-  return generateImageFromLines(lines);
+  if (tx.method === "PAYMENT") {
+    lines.push(`Mode: PAYMENT`);
+    if (tx.paymentDetails?.cash) lines.push(`  Cash: Rs ${tx.paymentDetails.cash}`);
+    if (tx.paymentDetails?.upi) lines.push(`  UPI:  Rs ${tx.paymentDetails.upi}`);
+    if (tx.paymentDetails?.other) lines.push(`  Other: Rs ${tx.paymentDetails.other}`);
+  } else if (tx.method === "OTHER") {
+    lines.push(`Mode: OTHER`);
+    if (tx.otherMode) lines.push(`  Type: ${tx.otherMode}`);
+    if (tx.remarks) lines.push(`  Note: ${tx.remarks}`);
+  } else {
+    lines.push(`Mode: ${tx.method}`);
+    if (tx.remarks) lines.push(`  Note: ${tx.remarks}`);
+  }
+  lines.push(`Tx ID: ${tx.id.toUpperCase()}`);
+  if (tx.denominations && Object.entries(tx.denominations).some(([_, count]) => count > 0)) {
+    lines.push("DENOMINATIONS:");
+    Object.entries(tx.denominations)
+      .filter(([_, count]) => count > 0)
+      .sort(([a], [b]) => Number(b) - Number(a))
+      .forEach(([val, count]) => {
+        const left = `  Rs.${val} x ${count}`;
+        const right = `Rs.${Number(val) * count}`;
+        const spaces = Math.max(0, 30 - left.length - right.length);
+        lines.push(`${left}${" ".repeat(spaces)}${right}`);
+      });
+
+    const paidCash = Object.entries(tx.denominations)
+      .reduce((acc, [val, count]) => acc + Number(val) * count, 0);
+    const targetCash = (tx.method === "PAYMENT" && tx.paymentDetails)
+      ? tx.paymentDetails.cash
+      : (tx.method === "CASH" ? tx.amount : 0);
+
+    if (paidCash > targetCash && targetCash > 0) {
+      const changeAmount = paidCash - targetCash;
+      lines.push("------------------------------");
+      lines.push(`CHANGE DUE: Rs ${changeAmount}`);
+      lines.push("RETURN DENOMINATIONS:");
+      
+      let remainingChange = changeAmount;
+      const denoms = [500, 200, 100, 50, 20, 10, 5, 2, 1];
+      for (const d of denoms) {
+        if (remainingChange >= d) {
+          const count = Math.floor(remainingChange / d);
+          if (count > 0) {
+            const left = `  Rs.${d} x ${count}`;
+            const right = `Rs.${d * count}`;
+            const spaces = Math.max(0, 30 - left.length - right.length);
+            lines.push(`${left}${" ".repeat(spaces)}${right}`);
+          }
+          remainingChange -= count * d;
+        }
+      }
+    }
+  }
+  lines.push("------------------------------");
+  lines.push(`TOTAL: Rs ${tx.amount}`);
+  if (tx.remainingBalance && tx.remainingBalance > 0) {
+    lines.push("------------------------------");
+    lines.push(`PAID AMOUNT: Rs ${tx.amount - tx.remainingBalance}`);
+    lines.push(`BALANCE DUE: Rs ${tx.remainingBalance}`);
+    lines.push("==============================");
+  } else {
+    lines.push("------------------------------");
+  }
+  lines.push("          Thank You!          ");
+  lines.push("      Mob: 9752556113         ");
+  return generateImageFromLines(lines, qrDataUrl, payeeName);
 };
 
 export const printReceipt = async (tx: Transaction) => {
