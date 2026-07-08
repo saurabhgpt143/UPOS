@@ -14,28 +14,7 @@ export function usePOS() {
   >("ESTIMATE");
   const [qrAmount, setQrAmount] = useState(0);
   const [upiId, setUpiId] = useState("");
-  const [upiNote, setUpiNoteState] = useState("");
-
-  const setUpiNote = useCallback((note: string) => {
-    setUpiNoteState(note);
-    setTransactions((prev) => {
-      if (prev.length > 0 && prev[0].method === "UPI") {
-        return prev.map((tx, idx) => {
-          if (idx === 0) {
-            return { ...tx, remarks: note || undefined };
-          }
-          return tx;
-        });
-      }
-      return prev;
-    });
-  }, []);
-
-  useEffect(() => {
-    if (screenMode === "CALC") {
-      setUpiNoteState("");
-    }
-  }, [screenMode]);
+  const [upiNote, setUpiNote] = useState("");
   const [customQrUrls, setCustomQrUrls] = useState<string[]>([]);
   const [currentQrIndex, setCurrentQrIndex] = useState(0);
 
