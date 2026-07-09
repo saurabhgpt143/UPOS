@@ -10,6 +10,7 @@ import {
   X,
   Plus,
   Clock,
+  IndianRupee,
   Ruler,
   Share2,
   Smartphone,
@@ -46,7 +47,7 @@ interface POSScreenProps {
   otherBillAmount: number;
   onConfirmPayment: (paymentDetails: { cash: number; upi: number; other: number }, otherMode?: string, remarks?: string, denominations?: Record<number, number>, remainingBalance?: number) => void;
   onConfirmOtherPayment: (otherMode: string, remarks: string) => void;
-  onUpdateTransactionDenominations: (denoms: Record<number, number>) => void;
+  onUpdateTransactionDenominations: (denoms: Record<number, number>, changeReturnedVia?: "CASH" | "UPI", customerUpiId?: string, upiReturnAmount?: number) => void;
   onHandlePayment?: (method: "CASH" | "UPI" | "OTHER" | "UDHAAR" | "PAYMENT REQUIRED" | "PAYMENT") => void;
   setScreenMode: (mode: ScreenMode) => void;
   onDeleteTransaction: (id: string) => void;
@@ -398,6 +399,12 @@ export function POSScreen({
     1: 0,
   });
 
+  const [changeReturnedVia, setChangeReturnedVia] = useState<"CASH" | "UPI">("CASH");
+  const [customerUpiId, setCustomerUpiId] = useState<string>("");
+  const [upiReturnAmount, setUpiReturnAmount] = useState<string>("");
+  const [upiReceivedAmount, setUpiReceivedAmount] = useState<string>("");
+  const [showManualReturn, setShowManualReturn] = useState<boolean>(false);
+
   const totalCash = Object.keys(denominations).reduce(
     (acc, val) => acc + Number(val) * denominations[Number(val)],
     0,
@@ -412,6 +419,29 @@ export function POSScreen({
 
   useEffect(() => {
     if (mode === "CASH") {
+      setChangeReturnedVia("CASH");
+      setCustomerUpiId("");
+      setUpiReturnAmount("");
+      setUpiReceivedAmount("");
+      setShowManualReturn(false);
+      setDenominations({
+        500: 0,
+        200: 0,
+        100: 0,
+        50: 0,
+        20: 0,
+        10: 0,
+        5: 0,
+        2: 0,
+        1: 0,
+      });
+    }
+    if (mode === "QR") {
+      setChangeReturnedVia("CASH");
+      setCustomerUpiId("");
+      setUpiReturnAmount("");
+      setUpiReceivedAmount("");
+      setShowManualReturn(false);
       setDenominations({
         500: 0,
         200: 0,
@@ -430,6 +460,11 @@ export function POSScreen({
       setPaymentUpi("");
       setPaymentOther("");
       setActiveSplitSection(null);
+      setChangeReturnedVia("CASH");
+      setCustomerUpiId("");
+      setUpiReturnAmount("");
+      setUpiReceivedAmount("");
+      setShowManualReturn(false);
       setDenominations({
         500: 0,
         200: 0,
@@ -449,10 +484,30 @@ export function POSScreen({
   }, [mode]);
 
   useEffect(() => {
-    if (mode === "CASH") {
-      onUpdateTransactionDenominations(denominations);
+    if (mode === "CASH" || mode === "QR") {
+      const calculatedQrChange = upiReceivedAmount !== "" ? Math.max(0, (Number(upiReceivedAmount) || qrAmount) - qrAmount) : 0;
+      const parsedAmount = upiReturnAmount !== "" 
+        ? Number(upiReturnAmount) 
+        : (mode === "QR" && calculatedQrChange > 0 ? calculatedQrChange : undefined);
+
+      onUpdateTransactionDenominations(
+        mode === "CASH" ? denominations : {
+          500: 0,
+          200: 0,
+          100: 0,
+          50: 0,
+          20: 0,
+          10: 0,
+          5: 0,
+          2: 0,
+          1: 0,
+        },
+        changeReturnedVia,
+        customerUpiId,
+        parsedAmount
+      );
     }
-  }, [denominations, mode, onUpdateTransactionDenominations]);
+  }, [denominations, mode, changeReturnedVia, customerUpiId, upiReturnAmount, upiReceivedAmount, qrAmount, onUpdateTransactionDenominations]);
 
   const getTxLines = (tx: Transaction): string[] => {
     const lines = [
@@ -466,6 +521,7 @@ export function POSScreen({
       if (tx.paymentDetails?.cash) lines.push(`  Cash: Rs ${tx.paymentDetails.cash}`);
       if (tx.paymentDetails?.upi) lines.push(`  UPI:  Rs ${tx.paymentDetails.upi}`);
       if (tx.paymentDetails?.other) lines.push(`  Other: Rs ${tx.paymentDetails.other}`);
+      if (tx.remarks) lines.push(`  Note: ${tx.remarks}`);
     } else if (tx.method === "OTHER") {
       lines.push(`Mode: OTHER`);
       if (tx.otherMode) lines.push(`  Type: ${tx.otherMode}`);
@@ -475,10 +531,17 @@ export function POSScreen({
       if (tx.remarks) lines.push(`  Note: ${tx.remarks}`);
     }
     lines.push(`Tx ID: ${tx.id.toUpperCase()}`);
-    if (tx.denominations && Object.entries(tx.denominations).some(([_, count]) => count > 0)) {
+    
+    const received = tx.denominations
+      ? Object.entries(tx.denominations).filter(([_, count]) => count > 0)
+      : [];
+    const returned = tx.denominations
+      ? Object.entries(tx.denominations).filter(([_, count]) => count < 0)
+      : [];
+
+    if (received.length > 0) {
       lines.push("DENOMINATIONS:");
-      Object.entries(tx.denominations)
-        .filter(([_, count]) => count > 0)
+      received
         .sort(([a], [b]) => Number(b) - Number(a))
         .forEach(([val, count]) => {
           const left = `  Rs.${val} x ${count}`;
@@ -486,31 +549,57 @@ export function POSScreen({
           const spaces = Math.max(0, 32 - left.length - right.length);
           lines.push(`${left}${" ".repeat(spaces)}${right}`);
         });
+    }
 
-      const paidCash = Object.entries(tx.denominations)
-        .reduce((acc, [val, count]) => acc + Number(val) * count, 0);
-      const targetCash = (tx.method === "PAYMENT" && tx.paymentDetails)
-        ? tx.paymentDetails.cash
-        : (tx.method === "CASH" ? tx.amount : 0);
+    const paidCash = received.reduce((acc, [val, count]) => acc + Number(val) * count, 0);
+    const targetCash = (tx.method === "PAYMENT" && tx.paymentDetails)
+      ? tx.paymentDetails.cash
+      : (tx.method === "CASH" ? tx.amount : 0);
 
-      if (paidCash > targetCash && targetCash > 0) {
-        const changeAmount = paidCash - targetCash;
-        lines.push("--------------------------------");
-        lines.push(`CHANGE DUE: Rs ${changeAmount}`);
+    const baseChangeAmount = (returned.length > 0)
+      ? returned.reduce((acc, [val, count]) => acc + Number(val) * Math.abs(count), 0)
+      : (paidCash > targetCash && targetCash > 0 ? paidCash - targetCash : 0);
+
+    const changeAmount = (tx.upiReturnAmount !== undefined)
+      ? tx.upiReturnAmount
+      : baseChangeAmount;
+
+    if (changeAmount > 0) {
+      lines.push("--------------------------------");
+      lines.push(`CHANGE DUE: Rs ${changeAmount}`);
+      if (tx.changeReturnedVia === "UPI") {
+        lines.push("RETURNED VIA UPI:");
+        if (tx.customerUpiId) {
+          lines.push(`  UPI: ${tx.customerUpiId}`);
+        } else {
+          lines.push("  UPI Status: Paid/Refunded");
+        }
+      } else {
         lines.push("RETURN DENOMINATIONS:");
-        
-        let remainingChange = changeAmount;
-        const denoms = [500, 200, 100, 50, 20, 10, 5, 2, 1];
-        for (const d of denoms) {
-          if (remainingChange >= d) {
-            const count = Math.floor(remainingChange / d);
-            if (count > 0) {
-              const left = `  Rs.${d} x ${count}`;
-              const right = `Rs.${d * count}`;
+        if (returned.length > 0) {
+          returned
+            .sort(([a], [b]) => Number(b) - Number(a))
+            .forEach(([val, count]) => {
+              const numCount = Math.abs(count);
+              const left = `  Rs.${val} x ${numCount}`;
+              const right = `Rs.${Number(val) * numCount}`;
               const spaces = Math.max(0, 32 - left.length - right.length);
               lines.push(`${left}${" ".repeat(spaces)}${right}`);
+            });
+        } else {
+          let remainingChange = changeAmount;
+          const denoms = [500, 200, 100, 50, 20, 10, 5, 2, 1];
+          for (const d of denoms) {
+            if (remainingChange >= d) {
+              const count = Math.floor(remainingChange / d);
+              if (count > 0) {
+                const left = `  Rs.${d} x ${count}`;
+                const right = `Rs.${d * count}`;
+                const spaces = Math.max(0, 32 - left.length - right.length);
+                lines.push(`${left}${" ".repeat(spaces)}${right}`);
+              }
+              remainingChange -= count * d;
             }
-            remainingChange -= count * d;
           }
         }
       }
@@ -847,6 +936,163 @@ export function POSScreen({
                 />
               </div>
 
+              {/* UPI Change / Return section */}
+              <div className="w-full max-w-[200px] border-t border-gray-800/60 mt-4 pt-4">
+                <div className="flex flex-col items-center gap-1 w-full">
+                  <div className="flex items-center gap-1 text-gray-400 text-[10px] font-bold">
+                    <IndianRupee className="w-3 h-3 text-[#3cc366]" />
+                    UPI Received Amount (₹)
+                  </div>
+                  <input
+                    type="number"
+                    placeholder={String(displayQrAmount)}
+                    value={upiReceivedAmount}
+                    onChange={(e) => setUpiReceivedAmount(e.target.value)}
+                    className="w-full text-[10px] bg-transparent border-b border-gray-700 rounded-none px-2 py-1 text-center outline-none focus:border-[#3cc366] placeholder:text-gray-600 text-white transition-colors"
+                  />
+                </div>
+
+                {(() => {
+                  const calculatedChange = Math.max(0, (Number(upiReceivedAmount) || displayQrAmount) - displayQrAmount);
+                  const isReturnActive = calculatedChange > 0 || showManualReturn;
+
+                  return (
+                    <div className="mt-3 w-full">
+                      {!isReturnActive ? (
+                        <button
+                          type="button"
+                          onClick={() => setShowManualReturn(true)}
+                          className="w-full text-[9px] font-bold text-gray-400 hover:text-white uppercase tracking-wider bg-gray-900 border border-gray-800 rounded py-1 transition-all cursor-pointer flex items-center justify-center gap-1"
+                        >
+                          🔄 Record Return / Refund
+                        </button>
+                      ) : (
+                        <div className="flex flex-col gap-2">
+                          <div className="flex justify-between items-center bg-transparent">
+                            <span className="text-[9px] font-bold text-gray-500 uppercase">Return Details</span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setShowManualReturn(false);
+                                setUpiReceivedAmount("");
+                                setUpiReturnAmount("");
+                                setCustomerUpiId("");
+                              }}
+                              className="text-[9px] font-bold text-red-400 hover:text-red-300 uppercase cursor-pointer"
+                            >
+                              Reset
+                            </button>
+                          </div>
+
+                          {/* Selector for Return Method */}
+                          <div className="flex bg-[#1e1e1e] p-0.5 rounded border border-[#333] gap-0.5 w-full">
+                            <button
+                              type="button"
+                              onClick={() => setChangeReturnedVia("CASH")}
+                              className={cn(
+                                "flex-1 py-1 px-1 text-[8px] font-bold rounded transition-all cursor-pointer flex items-center justify-center gap-0.5",
+                                changeReturnedVia === "CASH"
+                                  ? "bg-[#3cc366] text-black shadow"
+                                  : "text-gray-400 hover:text-white"
+                              )}
+                            >
+                              💵 Cash Return
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setChangeReturnedVia("UPI")}
+                              className={cn(
+                                "flex-1 py-1 px-1 text-[8px] font-bold rounded transition-all cursor-pointer flex items-center justify-center gap-0.5",
+                                changeReturnedVia === "UPI"
+                                  ? "bg-[#3cc366] text-black shadow"
+                                  : "text-gray-400 hover:text-white"
+                              )}
+                            >
+                              📱 UPI Return
+                            </button>
+                          </div>
+
+                          {changeReturnedVia === "CASH" ? (
+                            <div className="bg-[#1e1e1e]/60 p-2 rounded border border-[#333]/60 w-full">
+                              <div className="text-[8px] font-bold text-gray-500 mb-1.5 uppercase tracking-wider text-center">
+                                Suggested Denominations
+                              </div>
+                              <div className="flex flex-wrap gap-1 justify-center">
+                                {(() => {
+                                  let remaining = upiReturnAmount !== "" ? Number(upiReturnAmount) : calculatedChange;
+                                  if (remaining <= 0) return <span className="text-[8px] text-gray-600 font-bold uppercase">No Change Due</span>;
+                                  const result: { [key: number]: number } = {};
+                                  const denoms = [500, 200, 100, 50, 20, 10, 5, 2, 1];
+                                  for (const d of denoms) {
+                                    if (remaining >= d) {
+                                      const count = Math.floor(remaining / d);
+                                      result[d] = count;
+                                      remaining -= count * d;
+                                    }
+                                  }
+                                  return Object.entries(result)
+                                    .filter(([_, count]) => count > 0)
+                                    .sort(([a], [b]) => Number(b) - Number(a))
+                                    .map(([val, count]) => (
+                                      <div
+                                        key={val}
+                                        className="bg-[#2c2c2c] text-white px-1.5 py-0.5 rounded text-[8px] font-mono border border-gray-700 flex items-center gap-0.5 shadow-sm"
+                                      >
+                                        <span className="text-gray-400">₹{val}</span>
+                                        <span className="text-[#3cc366]">×</span>
+                                        <span className="font-bold">{count}</span>
+                                      </div>
+                                    ));
+                                })()}
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="bg-[#1e1e1e]/60 p-2 rounded border border-[#333]/60 w-full flex flex-col gap-1.5 animate-fade-in">
+                              <div>
+                                <label className="text-[8px] font-bold text-gray-500 uppercase tracking-wider block mb-0.5">
+                                  UPI Return Amount (₹)
+                                </label>
+                                <div className="relative">
+                                  <input
+                                    type="number"
+                                    value={upiReturnAmount}
+                                    onChange={(e) => setUpiReturnAmount(e.target.value)}
+                                    placeholder={String(calculatedChange)}
+                                    className="w-full bg-[#111] border border-gray-800 focus:border-[#3cc366]/50 rounded px-1.5 py-1 text-[9px] text-white placeholder-gray-500 focus:outline-none transition-colors"
+                                  />
+                                  {upiReturnAmount !== "" && (
+                                    <button
+                                      type="button"
+                                      onClick={() => setUpiReturnAmount("")}
+                                      className="absolute right-1 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white text-[7px] uppercase tracking-wider font-bold bg-[#222] border border-gray-700 rounded px-0.5 cursor-pointer"
+                                    >
+                                      Auto
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+
+                              <div>
+                                <label className="text-[8px] font-bold text-gray-500 uppercase tracking-wider block mb-0.5">
+                                  Customer UPI ID / Mobile
+                                </label>
+                                <input
+                                  type="text"
+                                  value={customerUpiId}
+                                  onChange={(e) => setCustomerUpiId(e.target.value)}
+                                  placeholder="e.g. customer@okaxis"
+                                  className="w-full bg-[#111] border border-gray-800 focus:border-[#3cc366]/50 rounded px-1.5 py-1 text-[9px] text-white placeholder-gray-500 focus:outline-none transition-colors"
+                                />
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+              </div>
+
               {isSplitUpi && (
                 <button
                   onClick={() => {
@@ -883,7 +1129,14 @@ export function POSScreen({
                   <div className="w-12"></div>
                 </div>
               ) : (
-                <div className="flex justify-between items-center mb-2">
+                <div className="flex justify-between items-center mb-2 pb-1 border-b border-gray-800">
+                  <button
+                    onClick={() => setScreenMode("CALC")}
+                    className="text-gray-400 hover:text-white transition-colors flex items-center gap-1 text-[11px] font-bold"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                    Back
+                  </button>
                   <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider flex items-center gap-1.5">
                     Cash Calculator
                     <button
@@ -939,22 +1192,33 @@ export function POSScreen({
 
                         if (totalCash > displayCashAmount) {
                           textLines.push("--------------------------------");
-                          textLines.push("         RETURN CHANGE          ");
-                          let remaining = totalCash - displayCashAmount;
-                          const denoms = [500, 200, 100, 50, 20, 10, 5, 2, 1];
-                          for (const d of denoms) {
-                            if (remaining >= d) {
-                              const count = Math.floor(remaining / d);
-                              const left = `-Rs.${d} x ${count}`;
-                              const right = `-Rs.${d * count}`;
-                              const spaces = Math.max(
-                                0,
-                                32 - left.length - right.length,
-                              );
-                              textLines.push(
-                                `${left}${" ".repeat(spaces)}${right}`,
-                              );
-                              remaining -= count * d;
+                          if (changeReturnedVia === "UPI") {
+                            textLines.push("      RETURNED VIA UPI          ");
+                            const actualReturnVal = upiReturnAmount !== "" ? Number(upiReturnAmount) : (totalCash - displayCashAmount);
+                            textLines.push(`  Amount: Rs ${actualReturnVal}`);
+                            if (customerUpiId) {
+                              textLines.push(`  UPI ID: ${customerUpiId}`);
+                            } else {
+                              textLines.push("  UPI Status: Paid/Refunded");
+                            }
+                          } else {
+                            textLines.push("         RETURN CHANGE          ");
+                            let remaining = totalCash - displayCashAmount;
+                            const denoms = [500, 200, 100, 50, 20, 10, 5, 2, 1];
+                            for (const d of denoms) {
+                              if (remaining >= d) {
+                                const count = Math.floor(remaining / d);
+                                const left = `-Rs.${d} x ${count}`;
+                                const right = `-Rs.${d * count}`;
+                                const spaces = Math.max(
+                                  0,
+                                  32 - left.length - right.length,
+                                );
+                                textLines.push(
+                                  `${left}${" ".repeat(spaces)}${right}`,
+                                );
+                                remaining -= count * d;
+                              }
                             }
                           }
                         }
@@ -1081,38 +1345,125 @@ export function POSScreen({
               </div>
 
               {totalCash > displayCashAmount && (
-                <div className="bg-[#1e1e1e] p-2 rounded mt-2 border border-[#333] shrink-0">
-                  <div className="text-[10px] font-bold text-gray-500 mb-2 uppercase tracking-wider text-center">
-                    Return Denominations
+                <>
+                  {/* Selector for Return Method */}
+                  <div className="flex bg-[#1e1e1e] p-1 rounded border border-[#333] gap-1 shrink-0 mt-2">
+                    <button
+                      onClick={() => setChangeReturnedVia("CASH")}
+                      className={cn(
+                        "flex-1 py-1 px-2 text-[9px] font-bold rounded transition-all cursor-pointer flex items-center justify-center gap-1",
+                        changeReturnedVia === "CASH"
+                          ? "bg-[#3cc366] text-black shadow"
+                          : "text-gray-400 hover:text-white"
+                      )}
+                    >
+                      💵 Cash Return
+                    </button>
+                    <button
+                      onClick={() => setChangeReturnedVia("UPI")}
+                      className={cn(
+                        "flex-1 py-1 px-2 text-[9px] font-bold rounded transition-all cursor-pointer flex items-center justify-center gap-1",
+                        changeReturnedVia === "UPI"
+                          ? "bg-[#3cc366] text-black shadow"
+                          : "text-gray-400 hover:text-white"
+                      )}
+                    >
+                      📱 UPI Return
+                    </button>
                   </div>
-                  <div className="flex flex-wrap gap-1.5 justify-center">
-                    {(() => {
-                      let remaining = totalCash - displayCashAmount;
-                      const result: { [key: number]: number } = {};
-                      const denoms = [500, 200, 100, 50, 20, 10, 5, 2, 1];
-                      for (const d of denoms) {
-                        if (remaining >= d) {
-                          const count = Math.floor(remaining / d);
-                          result[d] = count;
-                          remaining -= count * d;
-                        }
-                      }
-                      return Object.entries(result)
-                        .filter(([_, count]) => count > 0)
-                        .sort(([a], [b]) => Number(b) - Number(a))
-                        .map(([val, count]) => (
-                          <div
-                            key={val}
-                            className="bg-[#2c2c2c] text-white px-2 py-1 rounded text-[10px] font-mono border border-gray-700 flex items-center gap-1 shadow-sm"
-                          >
-                            <span className="text-gray-400">₹{val}</span>
-                            <span className="text-[#3cc366]">×</span>
-                            <span className="font-bold">{count}</span>
+
+                  {changeReturnedVia === "CASH" ? (
+                    <div className="bg-[#1e1e1e] p-2 rounded mt-2 border border-[#333] shrink-0">
+                      <div className="text-[10px] font-bold text-gray-500 mb-2 uppercase tracking-wider text-center">
+                        Return Denominations
+                      </div>
+                      <div className="flex flex-wrap gap-1.5 justify-center">
+                        {(() => {
+                          let remaining = totalCash - displayCashAmount;
+                          const result: { [key: number]: number } = {};
+                          const denoms = [500, 200, 100, 50, 20, 10, 5, 2, 1];
+                          for (const d of denoms) {
+                            if (remaining >= d) {
+                              const count = Math.floor(remaining / d);
+                              result[d] = count;
+                              remaining -= count * d;
+                            }
+                          }
+                          return Object.entries(result)
+                            .filter(([_, count]) => count > 0)
+                            .sort(([a], [b]) => Number(b) - Number(a))
+                            .map(([val, count]) => (
+                              <div
+                                key={val}
+                                className="bg-[#2c2c2c] text-white px-2 py-1 rounded text-[10px] font-mono border border-gray-700 flex items-center gap-1 shadow-sm"
+                              >
+                                <span className="text-gray-400">₹{val}</span>
+                                <span className="text-[#3cc366]">×</span>
+                                <span className="font-bold">{count}</span>
+                              </div>
+                            ));
+                        })()}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="bg-[#1e1e1e] p-3 rounded mt-2 border border-[#333] shrink-0 flex flex-col gap-2.5 animate-fade-in">
+                      <div className="text-[10px] font-bold text-gray-500 uppercase tracking-wider text-center">
+                        Return via UPI Details
+                      </div>
+
+                      <div className="flex gap-2">
+                        <div className="flex-1">
+                          <label className="text-[9px] font-bold text-gray-500 uppercase tracking-wider block mb-1">
+                            UPI Return Amount (₹)
+                          </label>
+                          <div className="relative">
+                            <input
+                              type="number"
+                              value={upiReturnAmount}
+                              onChange={(e) => setUpiReturnAmount(e.target.value)}
+                              placeholder={String(totalCash - displayCashAmount)}
+                              className="w-full bg-[#111] border border-gray-800 focus:border-[#3cc366]/50 rounded px-2.5 py-1.5 text-[10px] text-white placeholder-gray-500 focus:outline-none transition-colors"
+                            />
+                            {upiReturnAmount !== "" && (
+                              <button
+                                type="button"
+                                onClick={() => setUpiReturnAmount("")}
+                                className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 hover:text-white text-[8px] uppercase tracking-wider font-bold bg-[#222] border border-gray-700 rounded px-1 cursor-pointer"
+                              >
+                                Auto
+                              </button>
+                            )}
                           </div>
-                        ));
-                    })()}
-                  </div>
-                </div>
+                        </div>
+                        <div className="w-[85px] bg-black/40 border border-gray-800/60 rounded p-1.5 text-center flex flex-col justify-center shrink-0">
+                          <span className="text-[8px] text-gray-400 block uppercase tracking-wide leading-none mb-1">Calculated</span>
+                          <span className="text-xs font-extrabold text-[#3cc366] leading-none">₹{totalCash - displayCashAmount}</span>
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="text-[9px] font-bold text-gray-500 uppercase tracking-wider block mb-1">
+                          Customer UPI ID / Mobile
+                        </label>
+                        <input
+                          type="text"
+                          value={customerUpiId}
+                          onChange={(e) => setCustomerUpiId(e.target.value)}
+                          placeholder="customer@upi or mobile number"
+                          className="w-full bg-[#111] border border-gray-800 focus:border-[#3cc366]/50 rounded px-2.5 py-1.5 text-[10px] text-white placeholder-gray-600 focus:outline-none transition-colors"
+                        />
+                      </div>
+                      <div className="text-[9px] text-center text-gray-500 font-medium">
+                        Recording UPI return of <strong className="text-[#3cc366] font-mono">₹{upiReturnAmount !== "" ? upiReturnAmount : totalCash - displayCashAmount}</strong>
+                        {customerUpiId ? (
+                          <span> to <strong className="font-mono text-white">{customerUpiId}</strong></span>
+                        ) : (
+                          <span> (UPI ID not specified)</span>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </>
               )}
 
               {isSplitCash && (
@@ -1224,17 +1575,34 @@ export function POSScreen({
                         Mode: {tx.otherMode} {tx.remarks ? `| ${tx.remarks}` : ""}
                       </span>
                     )}
-                    {tx.denominations && Object.values(tx.denominations).some((count) => count > 0) && (
+                    {tx.remarks && tx.method !== "OTHER" && (
+                      <span className="text-[8px] text-gray-500 font-mono pl-0.5">
+                        Note: {tx.remarks}
+                      </span>
+                    )}
+                    {tx.changeReturnedVia === "UPI" && (
+                      <div className="mt-1 pl-0.5">
+                        <span className="text-[8px] font-bold bg-[#3cc366]/10 border border-[#3cc366]/30 text-[#3cc366] px-1.5 py-0.5 rounded inline-flex items-center gap-1">
+                          📱 UPI Return {tx.customerUpiId ? `(${tx.customerUpiId})` : ""}
+                        </span>
+                      </div>
+                    )}
+                    {tx.denominations && Object.values(tx.denominations).some((count) => count !== 0) && (
                       <div className="flex flex-wrap gap-1 mt-1 pl-0.5 max-w-[220px]">
                         {Object.entries(tx.denominations)
-                          .filter(([_, count]) => count > 0)
+                          .filter(([_, count]) => count !== 0)
                           .sort(([a], [b]) => Number(b) - Number(a))
                           .map(([val, count]) => (
                             <span
                               key={val}
-                              className="text-[8px] font-mono bg-black/40 border border-gray-800/80 text-gray-400 px-1 py-0.5 rounded"
+                              className={cn(
+                                "text-[8px] font-mono border px-1 py-0.5 rounded",
+                                count > 0
+                                  ? "bg-black/40 border-gray-800/80 text-gray-400"
+                                  : "bg-red-950/20 border-red-900/30 text-red-400"
+                              )}
                             >
-                              ₹{val}×{count}
+                              {count > 0 ? `₹${val}×${count}` : `-₹${val}×${Math.abs(count)}`}
                             </span>
                           ))}
                       </div>
@@ -1361,17 +1729,34 @@ export function POSScreen({
                         Mode: {tx.otherMode} {tx.remarks ? `| ${tx.remarks}` : ""}
                       </span>
                     )}
-                    {tx.denominations && Object.values(tx.denominations).some((count) => count > 0) && (
+                    {tx.remarks && tx.method !== "OTHER" && (
+                      <span className="text-[8px] text-gray-500 font-mono pl-0.5">
+                        Note: {tx.remarks}
+                      </span>
+                    )}
+                    {tx.changeReturnedVia === "UPI" && (
+                      <div className="mt-1 pl-0.5">
+                        <span className="text-[8px] font-bold bg-[#3cc366]/10 border border-[#3cc366]/30 text-[#3cc366] px-1.5 py-0.5 rounded inline-flex items-center gap-1">
+                          📱 UPI Return {tx.customerUpiId ? `(${tx.customerUpiId})` : ""}
+                        </span>
+                      </div>
+                    )}
+                    {tx.denominations && Object.values(tx.denominations).some((count) => count !== 0) && (
                       <div className="flex flex-wrap gap-1 mt-1 pl-0.5 max-w-[220px]">
                         {Object.entries(tx.denominations)
-                          .filter(([_, count]) => count > 0)
+                          .filter(([_, count]) => count !== 0)
                           .sort(([a], [b]) => Number(b) - Number(a))
                           .map(([val, count]) => (
                             <span
                               key={val}
-                              className="text-[8px] font-mono bg-black/40 border border-gray-800/80 text-gray-400 px-1 py-0.5 rounded"
+                              className={cn(
+                                "text-[8px] font-mono border px-1 py-0.5 rounded",
+                                count > 0
+                                  ? "bg-black/40 border-gray-800/80 text-gray-400"
+                                  : "bg-red-950/20 border-red-900/30 text-red-400"
+                              )}
                             >
-                              ₹{val}×{count}
+                              {count > 0 ? `₹${val}×${count}` : `-₹${val}×${Math.abs(count)}`}
                             </span>
                           ))}
                       </div>

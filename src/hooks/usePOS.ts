@@ -8,7 +8,31 @@ export function usePOS() {
   const [memory, setMemory] = useState<number>(0);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
 
-  const [screenMode, setScreenMode] = useState<ScreenMode>("CALC");
+  const [screenMode, setScreenModeInternal] = useState<ScreenMode>("CALC");
+
+  const setScreenMode = useCallback((mode: ScreenMode) => {
+    setScreenModeInternal(mode);
+    if (mode === "CALC") {
+      setUpiNote("");
+    }
+  }, []);
+
+  const changeUpiNote = useCallback((val: string) => {
+    setUpiNote(val);
+    setScreenModeInternal((currentMode) => {
+      if (currentMode === "QR") {
+        setTransactions((prev) => {
+          if (prev.length === 0) return prev;
+          const copy = [...prev];
+          if (copy[0].method === "UPI") {
+            copy[0] = { ...copy[0], remarks: val || undefined };
+          }
+          return copy;
+        });
+      }
+      return currentMode;
+    });
+  }, []);
   const [pendingTxType, setPendingTxType] = useState<
     "SALE" | "EXPENSE" | "BILL" | "ESTIMATE"
   >("ESTIMATE");
@@ -207,6 +231,15 @@ export function usePOS() {
       const amt = paymentBillAmount;
       if (amt <= 0) return;
 
+      let finalRemarks = remarks;
+      if (paymentDetails.upi > 0 && upiNote) {
+        if (finalRemarks) {
+          finalRemarks += ` | UPI: ${upiNote}`;
+        } else {
+          finalRemarks = upiNote;
+        }
+      }
+
       const newTx: Transaction = {
         id: transactionId || Math.random().toString(36).substring(2, 9),
         type: pendingTxType,
@@ -215,7 +248,7 @@ export function usePOS() {
         timestamp: Date.now(),
         paymentDetails,
         otherMode,
-        remarks,
+        remarks: finalRemarks,
         denominations,
         remainingBalance,
       };
@@ -231,7 +264,7 @@ export function usePOS() {
       setPaymentBillAmount(0);
       setScreenMode("CALC");
     },
-    [paymentBillAmount, pendingTxType, transactionId],
+    [paymentBillAmount, pendingTxType, transactionId, upiNote, setScreenMode],
   );
 
   const confirmOtherPayment = useCallback(
@@ -263,11 +296,22 @@ export function usePOS() {
     [otherBillAmount, pendingTxType, transactionId],
   );
 
-  const updateLastTransactionDenominations = useCallback((denoms: Record<number, number>) => {
+  const updateLastTransactionDenominations = useCallback((
+    denoms: Record<number, number>,
+    changeReturnedVia?: "CASH" | "UPI",
+    customerUpiId?: string,
+    upiReturnAmount?: number
+  ) => {
     setTransactions((prev) => {
       if (prev.length === 0) return prev;
       const copy = [...prev];
-      copy[0] = { ...copy[0], denominations: denoms };
+      copy[0] = { 
+        ...copy[0], 
+        denominations: denoms,
+        changeReturnedVia,
+        customerUpiId,
+        upiReturnAmount
+      };
       return copy;
     });
   }, []);
@@ -300,7 +344,7 @@ export function usePOS() {
     upiId,
     setUpiId,
     upiNote,
-    setUpiNote,
+    setUpiNote: changeUpiNote,
     customQrUrls,
     setCustomQrUrls,
     currentQrIndex,

@@ -105,6 +105,7 @@ export const generateReceiptImage = (tx: Transaction, qrDataUrl?: string, payeeN
     if (tx.paymentDetails?.cash) lines.push(`  Cash: Rs ${tx.paymentDetails.cash}`);
     if (tx.paymentDetails?.upi) lines.push(`  UPI:  Rs ${tx.paymentDetails.upi}`);
     if (tx.paymentDetails?.other) lines.push(`  Other: Rs ${tx.paymentDetails.other}`);
+    if (tx.remarks) lines.push(`  Note: ${tx.remarks}`);
   } else if (tx.method === "OTHER") {
     lines.push(`Mode: OTHER`);
     if (tx.otherMode) lines.push(`  Type: ${tx.otherMode}`);
@@ -114,42 +115,73 @@ export const generateReceiptImage = (tx: Transaction, qrDataUrl?: string, payeeN
     if (tx.remarks) lines.push(`  Note: ${tx.remarks}`);
   }
   lines.push(`Tx ID: ${tx.id.toUpperCase()}`);
-  if (tx.denominations && Object.entries(tx.denominations).some(([_, count]) => count > 0)) {
-    lines.push("DENOMINATIONS:");
-    Object.entries(tx.denominations)
+  if (tx.denominations && Object.entries(tx.denominations).some(([_, count]) => count !== 0)) {
+    const received = Object.entries(tx.denominations)
       .filter(([_, count]) => count > 0)
-      .sort(([a], [b]) => Number(b) - Number(a))
-      .forEach(([val, count]) => {
+      .sort(([a], [b]) => Number(b) - Number(a));
+
+    const returned = Object.entries(tx.denominations)
+      .filter(([_, count]) => count < 0)
+      .sort(([a], [b]) => Number(b) - Number(a));
+
+    if (received.length > 0) {
+      lines.push("DENOMINATIONS:");
+      received.forEach(([val, count]) => {
         const left = `  Rs.${val} x ${count}`;
         const right = `Rs.${Number(val) * count}`;
         const spaces = Math.max(0, 30 - left.length - right.length);
         lines.push(`${left}${" ".repeat(spaces)}${right}`);
       });
+    }
 
-    const paidCash = Object.entries(tx.denominations)
-      .reduce((acc, [val, count]) => acc + Number(val) * count, 0);
+    const paidCash = received.reduce((acc, [val, count]) => acc + Number(val) * count, 0);
     const targetCash = (tx.method === "PAYMENT" && tx.paymentDetails)
       ? tx.paymentDetails.cash
       : (tx.method === "CASH" ? tx.amount : 0);
 
-    if (paidCash > targetCash && targetCash > 0) {
-      const changeAmount = paidCash - targetCash;
+    const baseChangeAmount = (returned.length > 0)
+      ? returned.reduce((acc, [val, count]) => acc + Number(val) * Math.abs(count), 0)
+      : (paidCash > targetCash && targetCash > 0 ? paidCash - targetCash : 0);
+
+    const changeAmount = (tx.changeReturnedVia === "UPI" && tx.upiReturnAmount !== undefined)
+      ? tx.upiReturnAmount
+      : baseChangeAmount;
+
+    if (changeAmount > 0) {
       lines.push("------------------------------");
       lines.push(`CHANGE DUE: Rs ${changeAmount}`);
-      lines.push("RETURN DENOMINATIONS:");
-      
-      let remainingChange = changeAmount;
-      const denoms = [500, 200, 100, 50, 20, 10, 5, 2, 1];
-      for (const d of denoms) {
-        if (remainingChange >= d) {
-          const count = Math.floor(remainingChange / d);
-          if (count > 0) {
-            const left = `  Rs.${d} x ${count}`;
-            const right = `Rs.${d * count}`;
+      if (tx.changeReturnedVia === "UPI") {
+        lines.push("RETURNED VIA UPI:");
+        if (tx.customerUpiId) {
+          lines.push(`  UPI: ${tx.customerUpiId}`);
+        } else {
+          lines.push("  UPI Status: Paid/Refunded");
+        }
+      } else {
+        lines.push("RETURN DENOMINATIONS:");
+        if (returned.length > 0) {
+          returned.forEach(([val, count]) => {
+            const numCount = Math.abs(count);
+            const left = `  Rs.${val} x ${numCount}`;
+            const right = `Rs.${Number(val) * numCount}`;
             const spaces = Math.max(0, 30 - left.length - right.length);
             lines.push(`${left}${" ".repeat(spaces)}${right}`);
+          });
+        } else {
+          let remainingChange = changeAmount;
+          const denoms = [500, 200, 100, 50, 20, 10, 5, 2, 1];
+          for (const d of denoms) {
+            if (remainingChange >= d) {
+              const count = Math.floor(remainingChange / d);
+              if (count > 0) {
+                const left = `  Rs.${d} x ${count}`;
+                const right = `Rs.${d * count}`;
+                const spaces = Math.max(0, 30 - left.length - right.length);
+                lines.push(`${left}${" ".repeat(spaces)}${right}`);
+              }
+              remainingChange -= count * d;
+            }
           }
-          remainingChange -= count * d;
         }
       }
     }

@@ -13,6 +13,9 @@ export interface Transaction {
   remarks?: string;
   denominations?: Record<number, number>;
   remainingBalance?: number;
+  changeReturnedVia?: "CASH" | "UPI";
+  customerUpiId?: string;
+  upiReturnAmount?: number;
 }
 
 export type ScreenMode = "CALC" | "QR" | "DASHBOARD" | "HISTORY" | "CASH" | "PAYMENT" | "OTHER";
