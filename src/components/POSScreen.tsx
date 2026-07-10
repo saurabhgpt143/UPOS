@@ -16,6 +16,8 @@ import {
   Smartphone,
   FileText,
   Trash2,
+  Edit2,
+  User,
   Image as ImageIcon
 } from "lucide-react";
 import { ScreenMode, Transaction } from "../types";
@@ -45,12 +47,23 @@ interface POSScreenProps {
   memory: number;
   paymentBillAmount: number;
   otherBillAmount: number;
+  customerName: string;
+  setCustomerName: (val: string) => void;
+  customerMobile: string;
+  setCustomerMobile: (val: string) => void;
+  customerAddress: string;
+  setCustomerAddress: (val: string) => void;
+  vehicleNumber: string;
+  setVehicleNumber: (val: string) => void;
+  pertinentRemarks: string;
+  setPertinentRemarks: (val: string) => void;
   onConfirmPayment: (paymentDetails: { cash: number; upi: number; other: number }, otherMode?: string, remarks?: string, denominations?: Record<number, number>, remainingBalance?: number) => void;
   onConfirmOtherPayment: (otherMode: string, remarks: string) => void;
   onUpdateTransactionDenominations: (denoms: Record<number, number>, changeReturnedVia?: "CASH" | "UPI", customerUpiId?: string, upiReturnAmount?: number) => void;
   onHandlePayment?: (method: "CASH" | "UPI" | "OTHER" | "UDHAAR" | "PAYMENT REQUIRED" | "PAYMENT") => void;
   setScreenMode: (mode: ScreenMode) => void;
   onDeleteTransaction: (id: string) => void;
+  onUpdateTransaction: (id: string, updatedTx: Partial<Transaction>) => void;
 }
 
 export function POSScreen({
@@ -75,13 +88,25 @@ export function POSScreen({
   memory,
   paymentBillAmount,
   otherBillAmount,
+  customerName,
+  setCustomerName,
+  customerMobile,
+  setCustomerMobile,
+  customerAddress,
+  setCustomerAddress,
+  vehicleNumber,
+  setVehicleNumber,
+  pertinentRemarks,
+  setPertinentRemarks,
   onConfirmPayment,
   onConfirmOtherPayment,
   onUpdateTransactionDenominations,
   onHandlePayment,
   setScreenMode,
   onDeleteTransaction,
+  onUpdateTransaction,
 }: POSScreenProps) {
+  const [showCustomerDetails, setShowCustomerDetails] = useState(false);
   const [isFullscreenQr, setIsFullscreenQr] = useState(false);
   const [shareStatus, setShareStatus] = useState<string | null>(null);
   const [isDisplayExpanded, setIsDisplayExpanded] = useState(false);
@@ -105,6 +130,35 @@ export function POSScreen({
 
   const [otherModeInput, setOtherModeInput] = useState("");
   const [otherRemarksInput, setOtherRemarksInput] = useState("");
+
+  const [editingTransaction, setEditingTransaction] = useState<Transaction | null>(null);
+  const [editTxId, setEditTxId] = useState<string>("");
+  const [editType, setEditType] = useState<"SALE" | "EXPENSE" | "BILL" | "ESTIMATE">("SALE");
+  const [editMethod, setEditMethod] = useState<"CASH" | "UPI" | "OTHER" | "UDHAAR" | "PAYMENT REQUIRED" | "PAYMENT">("CASH");
+  const [editAmount, setEditAmount] = useState<string>("");
+  const [editRemarks, setEditRemarks] = useState<string>("");
+  const [editRemainingBalance, setEditRemainingBalance] = useState<string>("");
+  const [editOtherMode, setEditOtherMode] = useState<string>("");
+  const [editCustomerName, setEditCustomerName] = useState<string>("");
+  const [editCustomerMobile, setEditCustomerMobile] = useState<string>("");
+  const [editCustomerAddress, setEditCustomerAddress] = useState<string>("");
+  const [editVehicleNumber, setEditVehicleNumber] = useState<string>("");
+
+  useEffect(() => {
+    if (editingTransaction) {
+      setEditTxId(editingTransaction.id);
+      setEditType(editingTransaction.type);
+      setEditMethod(editingTransaction.method);
+      setEditAmount(String(editingTransaction.amount));
+      setEditRemarks(editingTransaction.remarks || "");
+      setEditRemainingBalance(editingTransaction.remainingBalance ? String(editingTransaction.remainingBalance) : "");
+      setEditOtherMode(editingTransaction.otherMode || "");
+      setEditCustomerName(editingTransaction.customerName || "");
+      setEditCustomerMobile(editingTransaction.customerMobile || "");
+      setEditCustomerAddress(editingTransaction.customerAddress || "");
+      setEditVehicleNumber(editingTransaction.vehicleNumber || "");
+    }
+  }, [editingTransaction]);
 
   const activateCashPortion = () => {
     const currentVal = paymentCash !== "" ? Number(paymentCash) : 0;
@@ -516,6 +570,10 @@ export function POSScreen({
       `Date: ${new Date(tx.timestamp).toLocaleString()}`,
       `Type: ${tx.type}`,
     ];
+    if (tx.customerName) lines.push(`Cust: ${tx.customerName}`);
+    if (tx.customerMobile) lines.push(`Mob:  ${tx.customerMobile}`);
+    if (tx.customerAddress) lines.push(`Addr: ${tx.customerAddress}`);
+    if (tx.vehicleNumber) lines.push(`Veh:  ${tx.vehicleNumber}`);
     if (tx.method === "PAYMENT") {
       lines.push(`Mode: PAYMENT`);
       if (tx.paymentDetails?.cash) lines.push(`  Cash: Rs ${tx.paymentDetails.cash}`);
@@ -686,6 +744,104 @@ export function POSScreen({
                   className="text-[10px] bg-transparent border-b border-gray-700 text-right outline-none focus:border-[#3cc366] placeholder:text-gray-600 text-gray-300 font-mono w-20"
                 />
               </div>
+            </div>
+
+            {/* Customer & Vehicle Details Form */}
+            <div className="mt-1 mb-2 bg-[#0d0d0d]/90 border border-[#222] rounded-lg overflow-hidden transition-all duration-300">
+              <button
+                type="button"
+                onClick={() => setShowCustomerDetails(!showCustomerDetails)}
+                className="w-full px-3 py-2 flex items-center justify-between text-gray-400 hover:text-white transition-colors bg-white/5 cursor-pointer text-[10px] font-bold uppercase tracking-wider"
+              >
+                <div className="flex items-center gap-2">
+                  <User className="w-3.5 h-3.5 text-[#3cc366]" />
+                  <span>
+                    {customerName || customerMobile || vehicleNumber ? (
+                      <span className="text-[#3cc366]">
+                        Customer: {customerName || "Walk-in"} {customerMobile ? `(${customerMobile})` : ""}
+                      </span>
+                    ) : (
+                      "Customer & Vehicle Info"
+                    )}
+                  </span>
+                </div>
+                <div className="text-[9px] text-[#3cc366] font-semibold bg-[#3cc366]/10 px-1.5 py-0.5 rounded border border-[#3cc366]/20">
+                  {showCustomerDetails ? "COLLAPSE ▴" : "ADD/EDIT ▾"}
+                </div>
+              </button>
+
+              {showCustomerDetails && (
+                <div className="p-3 bg-black border-t border-[#1a1a1a] flex flex-col gap-3">
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="text-[9px] font-bold text-gray-500 uppercase tracking-widest block mb-1">
+                        Customer Name
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="e.g. Rahul Sharma"
+                        value={customerName}
+                        onChange={(e) => setCustomerName(e.target.value)}
+                        className="w-full bg-[#111] border border-[#222] rounded text-xs text-white px-2 py-1.5 outline-none focus:border-[#3cc366] transition-colors font-sans"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-[9px] font-bold text-gray-500 uppercase tracking-widest block mb-1">
+                        Mobile Number
+                      </label>
+                      <input
+                        type="tel"
+                        placeholder="e.g. 9876543210"
+                        value={customerMobile}
+                        onChange={(e) => setCustomerMobile(e.target.value)}
+                        className="w-full bg-[#111] border border-[#222] rounded text-xs text-white px-2 py-1.5 outline-none focus:border-[#3cc366] transition-colors font-mono"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="text-[9px] font-bold text-gray-500 uppercase tracking-widest block mb-1">
+                        Address
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="e.g. Sector 15, Noida"
+                        value={customerAddress}
+                        onChange={(e) => setCustomerAddress(e.target.value)}
+                        className="w-full bg-[#111] border border-[#222] rounded text-xs text-white px-2 py-1.5 outline-none focus:border-[#3cc366] transition-colors font-sans"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="text-[9px] font-bold text-gray-500 uppercase tracking-widest block mb-1">
+                        Vehicle Number
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="e.g. DL-3C-AB-1234"
+                        value={vehicleNumber}
+                        onChange={(e) => setVehicleNumber(e.target.value.toUpperCase())}
+                        className="w-full bg-[#111] border border-[#222] rounded text-xs text-white px-2 py-1.5 outline-none focus:border-[#3cc366] transition-colors font-mono uppercase"
+                      />
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="text-[9px] font-bold text-gray-500 uppercase tracking-widest block mb-1">
+                      Pertinent Remarks / Notes
+                    </label>
+                    <textarea
+                      placeholder="e.g. Fast delivery, priority customer"
+                      value={pertinentRemarks}
+                      onChange={(e) => setPertinentRemarks(e.target.value)}
+                      rows={2}
+                      className="w-full bg-[#111] border border-[#222] rounded text-xs text-white px-2.5 py-1.5 outline-none focus:border-[#3cc366] transition-colors font-sans resize-none"
+                    />
+                  </div>
+                </div>
+              )}
             </div>
 
             <div
@@ -1607,6 +1763,30 @@ export function POSScreen({
                           ))}
                       </div>
                     )}
+                    {(tx.customerName || tx.customerMobile || tx.customerAddress || tx.vehicleNumber) && (
+                      <div className="mt-1 bg-black/30 border border-gray-800/40 rounded px-1.5 py-0.5 max-w-[240px] text-[8px] text-gray-400 space-y-0.5 animate-fade-in pl-0.5">
+                        {tx.customerName && (
+                          <div>
+                            <span className="font-bold text-gray-500 uppercase tracking-wide">Cust:</span> {tx.customerName}
+                          </div>
+                        )}
+                        {tx.customerMobile && (
+                          <div>
+                            <span className="font-bold text-gray-500 uppercase tracking-wide">Mob:</span> {tx.customerMobile}
+                          </div>
+                        )}
+                        {tx.customerAddress && (
+                          <div>
+                            <span className="font-bold text-gray-500 uppercase tracking-wide">Addr:</span> {tx.customerAddress}
+                          </div>
+                        )}
+                        {tx.vehicleNumber && (
+                          <div>
+                            <span className="font-bold text-[#3cc366] uppercase tracking-wide">Veh:</span> <span className="font-mono bg-[#3cc366]/10 text-[#3cc366] px-1 rounded">{tx.vehicleNumber}</span>
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                   <div className="flex items-center gap-2 lg:gap-4">
                     {deletingId === tx.id ? (
@@ -1646,6 +1826,13 @@ export function POSScreen({
                           title="Print Preview / Print"
                         >
                           <Printer className="w-3 h-3 lg:w-4 lg:h-4" />
+                        </button>
+                        <button
+                          onClick={() => setEditingTransaction(tx)}
+                          className="text-blue-400 hover:text-blue-300 hover:bg-blue-950/30 transition-colors bg-[#2c2c2c] rounded p-1 lg:p-2 active:bg-blue-900/40"
+                          title="Edit Transaction"
+                        >
+                          <Edit2 className="w-3 h-3 lg:w-4 lg:h-4" />
                         </button>
                         <button
                           onClick={() => setDeletingId(tx.id)}
@@ -1761,6 +1948,30 @@ export function POSScreen({
                           ))}
                       </div>
                     )}
+                    {(tx.customerName || tx.customerMobile || tx.customerAddress || tx.vehicleNumber) && (
+                      <div className="mt-1 bg-black/30 border border-gray-800/40 rounded px-1.5 py-0.5 max-w-[240px] text-[8px] text-gray-400 space-y-0.5 animate-fade-in pl-0.5">
+                        {tx.customerName && (
+                          <div>
+                            <span className="font-bold text-gray-500 uppercase tracking-wide">Cust:</span> {tx.customerName}
+                          </div>
+                        )}
+                        {tx.customerMobile && (
+                          <div>
+                            <span className="font-bold text-gray-500 uppercase tracking-wide">Mob:</span> {tx.customerMobile}
+                          </div>
+                        )}
+                        {tx.customerAddress && (
+                          <div>
+                            <span className="font-bold text-gray-500 uppercase tracking-wide">Addr:</span> {tx.customerAddress}
+                          </div>
+                        )}
+                        {tx.vehicleNumber && (
+                          <div>
+                            <span className="font-bold text-[#3cc366] uppercase tracking-wide">Veh:</span> <span className="font-mono bg-[#3cc366]/10 text-[#3cc366] px-1 rounded">{tx.vehicleNumber}</span>
+                          </div>
+                        )}
+                      </div>
+                    )}
                     <span className="text-[8px] text-gray-600 font-mono pl-0.5">
                       ID: {tx.id.toUpperCase()}
                     </span>
@@ -1803,6 +2014,13 @@ export function POSScreen({
                           title="Print Preview / Print"
                         >
                           <Printer className="w-3 h-3 lg:w-4 lg:h-4" />
+                        </button>
+                        <button
+                          onClick={() => setEditingTransaction(tx)}
+                          className="text-blue-400 hover:text-blue-300 hover:bg-blue-950/30 transition-colors bg-[#2c2c2c] rounded p-1 lg:p-2 active:bg-blue-900/40"
+                          title="Edit Transaction"
+                        >
+                          <Edit2 className="w-3 h-3 lg:w-4 lg:h-4" />
                         </button>
                         <button
                           onClick={() => setDeletingId(tx.id)}
@@ -2610,6 +2828,264 @@ export function POSScreen({
             </div>
           </div>
         </div>, document.body
+      )}
+
+      {editingTransaction && createPortal(
+        <div 
+          className="fixed inset-0 z-[100] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) {
+              setEditingTransaction(null);
+            }
+          }}
+        >
+          <div className="w-full max-w-md bg-[#121212] border border-[#2c2c2c] rounded-xl p-6 shadow-2xl relative flex flex-col gap-4 text-white animate-fade-in">
+            <div className="flex items-center justify-between border-b border-[#222] pb-3">
+              <div className="flex items-center gap-2">
+                <Edit2 className="w-5 h-5 text-blue-400" />
+                <h3 className="font-bold text-sm uppercase tracking-wider text-gray-200">
+                  Modify Transaction
+                </h3>
+              </div>
+              <button
+                onClick={() => setEditingTransaction(null)}
+                className="text-gray-400 hover:text-white p-1 rounded-lg hover:bg-white/5 transition"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="flex flex-col gap-3 text-xs overflow-y-auto max-h-[70vh] pr-1">
+              {/* Transaction ID input */}
+              <div>
+                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block mb-1">
+                  Transaction ID
+                </label>
+                <input
+                  type="text"
+                  value={editTxId}
+                  onChange={(e) => setEditTxId(e.target.value)}
+                  className="w-full bg-[#1e1e1e] border border-[#2c2c2c] rounded px-3 py-2 text-white placeholder-gray-600 focus:outline-none focus:border-blue-500 transition-colors font-mono text-[11px]"
+                  placeholder="Enter transaction ID"
+                />
+              </div>
+
+              {/* Type selection */}
+              <div>
+                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block mb-1">
+                  Transaction Type
+                </label>
+                <div className="grid grid-cols-4 gap-1 bg-[#1a1a1a] p-1 rounded border border-[#222]">
+                  {(["SALE", "EXPENSE", "BILL", "ESTIMATE"] as const).map((type) => (
+                    <button
+                      key={type}
+                      type="button"
+                      onClick={() => setEditType(type)}
+                      className={cn(
+                        "py-1.5 px-1 text-[9px] font-bold rounded transition cursor-pointer text-center",
+                        editType === type
+                          ? "bg-blue-600 text-white shadow"
+                          : "text-gray-400 hover:text-white"
+                      )}
+                    >
+                      {type}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Method selection */}
+              <div>
+                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block mb-1">
+                  Payment Method
+                </label>
+                <div className="grid grid-cols-3 gap-1 bg-[#1a1a1a] p-1 rounded border border-[#222]">
+                  {(["CASH", "UPI", "OTHER", "UDHAAR", "PAYMENT REQUIRED", "PAYMENT"] as const).map((method) => (
+                    <button
+                      key={method}
+                      type="button"
+                      onClick={() => setEditMethod(method)}
+                      className={cn(
+                        "py-1.5 px-0.5 text-[9px] font-bold rounded transition cursor-pointer text-center truncate",
+                        editMethod === method
+                          ? "bg-blue-600 text-white shadow"
+                          : "text-gray-400 hover:text-white"
+                      )}
+                      title={method}
+                    >
+                      {method}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Amount input */}
+              <div>
+                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block mb-1">
+                  Amount (₹)
+                </label>
+                <input
+                  type="number"
+                  value={editAmount}
+                  onChange={(e) => setEditAmount(e.target.value)}
+                  className="w-full bg-[#1e1e1e] border border-[#2c2c2c] rounded px-3 py-2 text-white placeholder-gray-600 focus:outline-none focus:border-blue-500 transition-colors font-mono text-[11px]"
+                  placeholder="Enter amount"
+                />
+              </div>
+
+              {/* Other Mode field (only visible if OTHER) */}
+              {editMethod === "OTHER" && (
+                <div>
+                  <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block mb-1">
+                    Custom Mode Name
+                  </label>
+                  <input
+                    type="text"
+                    value={editOtherMode}
+                    onChange={(e) => setEditOtherMode(e.target.value)}
+                    className="w-full bg-[#1e1e1e] border border-[#2c2c2c] rounded px-3 py-2 text-white placeholder-gray-600 focus:outline-none focus:border-blue-500 transition-colors text-[11px]"
+                    placeholder="e.g. Card, Cheque"
+                  />
+                </div>
+              )}
+
+              {/* Remaining Balance (for Partial Payment / Udhaar) */}
+              {(editMethod === "PAYMENT" || editMethod === "UDHAAR" || editMethod === "PAYMENT REQUIRED") && (
+                <div>
+                  <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block mb-1">
+                    Remaining Balance / Balance Due (₹)
+                  </label>
+                  <input
+                    type="number"
+                    value={editRemainingBalance}
+                    onChange={(e) => setEditRemainingBalance(e.target.value)}
+                    className="w-full bg-[#1e1e1e] border border-[#2c2c2c] rounded px-3 py-2 text-white placeholder-gray-600 focus:outline-none focus:border-blue-500 transition-colors font-mono text-[11px]"
+                    placeholder="Remaining balance due"
+                  />
+                </div>
+              )}
+
+              {/* Customer Details */}
+              <div>
+                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block mb-1">
+                  Customer Name
+                </label>
+                <input
+                  type="text"
+                  value={editCustomerName}
+                  onChange={(e) => setEditCustomerName(e.target.value)}
+                  className="w-full bg-[#1e1e1e] border border-[#2c2c2c] rounded px-3 py-2 text-white placeholder-gray-600 focus:outline-none focus:border-blue-500 transition-colors text-[11px]"
+                  placeholder="Customer Name"
+                />
+              </div>
+
+              <div>
+                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block mb-1">
+                  Mobile Number
+                </label>
+                <input
+                  type="text"
+                  value={editCustomerMobile}
+                  onChange={(e) => setEditCustomerMobile(e.target.value)}
+                  className="w-full bg-[#1e1e1e] border border-[#2c2c2c] rounded px-3 py-2 text-white placeholder-gray-600 focus:outline-none focus:border-blue-500 transition-colors font-mono text-[11px]"
+                  placeholder="Mobile Number"
+                />
+              </div>
+
+              <div>
+                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block mb-1">
+                  Address
+                </label>
+                <input
+                  type="text"
+                  value={editCustomerAddress}
+                  onChange={(e) => setEditCustomerAddress(e.target.value)}
+                  className="w-full bg-[#1e1e1e] border border-[#2c2c2c] rounded px-3 py-2 text-white placeholder-gray-600 focus:outline-none focus:border-blue-500 transition-colors text-[11px]"
+                  placeholder="Address"
+                />
+              </div>
+
+              <div>
+                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block mb-1">
+                  Vehicle Number
+                </label>
+                <input
+                  type="text"
+                  value={editVehicleNumber}
+                  onChange={(e) => setEditVehicleNumber(e.target.value.toUpperCase())}
+                  className="w-full bg-[#1e1e1e] border border-[#2c2c2c] rounded px-3 py-2 text-white placeholder-gray-600 focus:outline-none focus:border-blue-500 transition-colors font-mono text-[11px]"
+                  placeholder="Vehicle Number"
+                />
+              </div>
+
+              {/* Remarks / Note */}
+              <div>
+                <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block mb-1">
+                  Notes / Remarks
+                </label>
+                <textarea
+                  value={editRemarks}
+                  onChange={(e) => setEditRemarks(e.target.value)}
+                  className="w-full bg-[#1e1e1e] border border-[#2c2c2c] rounded px-3 py-2 text-white placeholder-gray-600 focus:outline-none focus:border-blue-500 transition-colors min-h-[60px] text-[11px]"
+                  placeholder="Add custom transaction remarks"
+                />
+              </div>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="flex gap-2 border-t border-[#222] pt-3 mt-1">
+              <button
+                type="button"
+                onClick={() => setEditingTransaction(null)}
+                className="flex-1 bg-transparent hover:bg-white/5 border border-[#333] text-gray-300 hover:text-white py-2 rounded font-bold uppercase tracking-wider text-[11px] cursor-pointer transition"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const trimmedId = editTxId.trim();
+                  if (!trimmedId) {
+                    alert("Please enter a valid Transaction ID");
+                    return;
+                  }
+                  const duplicate = transactions.some(
+                    (tx) => tx.id.toLowerCase() === trimmedId.toLowerCase() && tx.id.toLowerCase() !== editingTransaction.id.toLowerCase()
+                  );
+                  if (duplicate) {
+                    alert("This Transaction ID is already in use. Please enter a unique ID.");
+                    return;
+                  }
+                  if (!editAmount || isNaN(Number(editAmount))) {
+                    alert("Please enter a valid amount");
+                    return;
+                  }
+                  const updatedTx: Partial<Transaction> = {
+                    id: trimmedId,
+                    type: editType,
+                    method: editMethod,
+                    amount: Number(editAmount),
+                    remarks: editRemarks || undefined,
+                    otherMode: editMethod === "OTHER" ? (editOtherMode || undefined) : undefined,
+                    remainingBalance: (editMethod === "PAYMENT" || editMethod === "UDHAAR" || editMethod === "PAYMENT REQUIRED")
+                      ? (editRemainingBalance ? Number(editRemainingBalance) : undefined)
+                      : undefined,
+                    customerName: editCustomerName || undefined,
+                    customerMobile: editCustomerMobile || undefined,
+                    customerAddress: editCustomerAddress || undefined,
+                    vehicleNumber: editVehicleNumber || undefined,
+                  };
+                  onUpdateTransaction(editingTransaction.id, updatedTx);
+                  setEditingTransaction(null);
+                }}
+                className="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-2 rounded font-bold uppercase tracking-wider text-[11px] cursor-pointer transition shadow"
+              >
+                Save Changes
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
       )}
     </div>
   );

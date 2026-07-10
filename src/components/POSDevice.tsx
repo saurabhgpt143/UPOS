@@ -216,12 +216,23 @@ export function POSDevice() {
           memory={pos.memory}
           paymentBillAmount={pos.paymentBillAmount}
           otherBillAmount={pos.otherBillAmount}
+          customerName={pos.customerName}
+          setCustomerName={pos.setCustomerName}
+          customerMobile={pos.customerMobile}
+          setCustomerMobile={pos.setCustomerMobile}
+          customerAddress={pos.customerAddress}
+          setCustomerAddress={pos.setCustomerAddress}
+          vehicleNumber={pos.vehicleNumber}
+          setVehicleNumber={pos.setVehicleNumber}
+          pertinentRemarks={pos.pertinentRemarks}
+          setPertinentRemarks={pos.setPertinentRemarks}
           onConfirmPayment={pos.confirmPayment}
           onConfirmOtherPayment={pos.confirmOtherPayment}
           onUpdateTransactionDenominations={pos.updateLastTransactionDenominations}
           onHandlePayment={pos.handlePayment}
           setScreenMode={pos.setScreenMode}
           onDeleteTransaction={pos.deleteTransaction}
+          onUpdateTransaction={pos.updateTransaction}
         />
       </div>
 

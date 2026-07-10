@@ -48,6 +48,11 @@ export function usePOS() {
 
   const [shouldResetDisplay, setShouldResetDisplay] = useState(false);
   const [transactionId, setTransactionId] = useState("");
+  const [customerName, setCustomerName] = useState("");
+  const [customerMobile, setCustomerMobile] = useState("");
+  const [customerAddress, setCustomerAddress] = useState("");
+  const [vehicleNumber, setVehicleNumber] = useState("");
+  const [pertinentRemarks, setPertinentRemarks] = useState("");
   const mrcPressedRef = useRef(false);
 
   const _evaluateCurrent = () => {
@@ -208,7 +213,11 @@ export function usePOS() {
         method,
         amount: amt,
         timestamp: Date.now(),
-        remarks: method === "UPI" && upiNote ? upiNote : undefined,
+        remarks: pertinentRemarks || (method === "UPI" && upiNote ? upiNote : undefined),
+        customerName: customerName || undefined,
+        customerMobile: customerMobile || undefined,
+        customerAddress: customerAddress || undefined,
+        vehicleNumber: vehicleNumber || undefined,
       };
 
       setTransactions((prev) => [newTx, ...prev]);
@@ -218,12 +227,27 @@ export function usePOS() {
       setDisplayValue("0");
       setShouldResetDisplay(true);
       setTransactionId("");
+      setCustomerName("");
+      setCustomerMobile("");
+      setCustomerAddress("");
+      setVehicleNumber("");
+      setPertinentRemarks("");
       setPendingTxType("ESTIMATE"); // default back to estimate
       if (method === "UPI") {
         setUpiNote("");
       }
     },
-    [expression, pendingTxType, transactionId, upiNote],
+    [
+      expression,
+      pendingTxType,
+      transactionId,
+      upiNote,
+      pertinentRemarks,
+      customerName,
+      customerMobile,
+      customerAddress,
+      vehicleNumber,
+    ],
   );
 
   const confirmPayment = useCallback(
@@ -231,7 +255,7 @@ export function usePOS() {
       const amt = paymentBillAmount;
       if (amt <= 0) return;
 
-      let finalRemarks = remarks;
+      let finalRemarks = remarks || pertinentRemarks || undefined;
       if (paymentDetails.upi > 0 && upiNote) {
         if (finalRemarks) {
           finalRemarks += ` | UPI: ${upiNote}`;
@@ -249,6 +273,10 @@ export function usePOS() {
         paymentDetails,
         otherMode,
         remarks: finalRemarks,
+        customerName: customerName || undefined,
+        customerMobile: customerMobile || undefined,
+        customerAddress: customerAddress || undefined,
+        vehicleNumber: vehicleNumber || undefined,
         denominations,
         remainingBalance,
       };
@@ -260,11 +288,27 @@ export function usePOS() {
       setDisplayValue("0");
       setShouldResetDisplay(true);
       setTransactionId("");
+      setCustomerName("");
+      setCustomerMobile("");
+      setCustomerAddress("");
+      setVehicleNumber("");
+      setPertinentRemarks("");
       setPendingTxType("ESTIMATE"); // default back to estimate
       setPaymentBillAmount(0);
       setScreenMode("CALC");
     },
-    [paymentBillAmount, pendingTxType, transactionId, upiNote, setScreenMode],
+    [
+      paymentBillAmount,
+      pendingTxType,
+      transactionId,
+      upiNote,
+      setScreenMode,
+      pertinentRemarks,
+      customerName,
+      customerMobile,
+      customerAddress,
+      vehicleNumber,
+    ],
   );
 
   const confirmOtherPayment = useCallback(
@@ -279,7 +323,11 @@ export function usePOS() {
         amount: amt,
         timestamp: Date.now(),
         otherMode,
-        remarks,
+        remarks: remarks || pertinentRemarks || undefined,
+        customerName: customerName || undefined,
+        customerMobile: customerMobile || undefined,
+        customerAddress: customerAddress || undefined,
+        vehicleNumber: vehicleNumber || undefined,
       };
 
       setTransactions((prev) => [newTx, ...prev]);
@@ -289,11 +337,25 @@ export function usePOS() {
       setDisplayValue("0");
       setShouldResetDisplay(true);
       setTransactionId("");
+      setCustomerName("");
+      setCustomerMobile("");
+      setCustomerAddress("");
+      setVehicleNumber("");
+      setPertinentRemarks("");
       setPendingTxType("ESTIMATE"); // default back to estimate
       setOtherBillAmount(0);
       setScreenMode("CALC");
     },
-    [otherBillAmount, pendingTxType, transactionId],
+    [
+      otherBillAmount,
+      pendingTxType,
+      transactionId,
+      pertinentRemarks,
+      customerName,
+      customerMobile,
+      customerAddress,
+      vehicleNumber,
+    ],
   );
 
   const updateLastTransactionDenominations = useCallback((
@@ -320,6 +382,12 @@ export function usePOS() {
     setTransactions((prev) => prev.filter((tx) => tx.id !== id));
   }, []);
 
+  const updateTransaction = useCallback((id: string, updatedTx: Partial<Transaction>) => {
+    setTransactions((prev) =>
+      prev.map((tx) => (tx.id === id ? { ...tx, ...updatedTx } : tx))
+    );
+  }, []);
+
   const stats = useMemo(() => {
     let sales = 0;
     let expenses = 0;
@@ -341,6 +409,16 @@ export function usePOS() {
     transactions,
     transactionId,
     setTransactionId,
+    customerName,
+    setCustomerName,
+    customerMobile,
+    setCustomerMobile,
+    customerAddress,
+    setCustomerAddress,
+    vehicleNumber,
+    setVehicleNumber,
+    pertinentRemarks,
+    setPertinentRemarks,
     upiId,
     setUpiId,
     upiNote,
@@ -356,6 +434,7 @@ export function usePOS() {
     confirmOtherPayment,
     updateLastTransactionDenominations,
     deleteTransaction,
+    updateTransaction,
     handleMath,
     handleMemory,
     handleTax,

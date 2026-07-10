@@ -16,6 +16,10 @@ export interface Transaction {
   changeReturnedVia?: "CASH" | "UPI";
   customerUpiId?: string;
   upiReturnAmount?: number;
+  customerName?: string;
+  customerMobile?: string;
+  customerAddress?: string;
+  vehicleNumber?: string;
 }
 
 export type ScreenMode = "CALC" | "QR" | "DASHBOARD" | "HISTORY" | "CASH" | "PAYMENT" | "OTHER";
