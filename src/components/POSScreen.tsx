@@ -59,7 +59,7 @@ interface POSScreenProps {
   setPertinentRemarks: (val: string) => void;
   onConfirmPayment: (paymentDetails: { cash: number; upi: number; other: number }, otherMode?: string, remarks?: string, denominations?: Record<number, number>, remainingBalance?: number) => void;
   onConfirmOtherPayment: (otherMode: string, remarks: string) => void;
-  onUpdateTransactionDenominations: (denoms: Record<number, number>, changeReturnedVia?: "CASH" | "UPI", customerUpiId?: string, upiReturnAmount?: number) => void;
+  onUpdateTransactionDenominations: (denoms: Record<number, number>, changeReturnedVia?: "CASH" | "UPI", customerUpiId?: string, upiReturnAmount?: number, remainingBalance?: number) => void;
   onHandlePayment?: (method: "CASH" | "UPI" | "OTHER" | "UDHAAR" | "PAYMENT REQUIRED" | "PAYMENT") => void;
   setScreenMode: (mode: ScreenMode) => void;
   onDeleteTransaction: (id: string) => void;
@@ -151,7 +151,11 @@ export function POSScreen({
       setEditMethod(editingTransaction.method);
       setEditAmount(String(editingTransaction.amount));
       setEditRemarks(editingTransaction.remarks || "");
-      setEditRemainingBalance(editingTransaction.remainingBalance ? String(editingTransaction.remainingBalance) : "");
+      setEditRemainingBalance(
+        editingTransaction.remainingBalance !== undefined && editingTransaction.remainingBalance !== null
+          ? String(editingTransaction.remainingBalance)
+          : ""
+      );
       setEditOtherMode(editingTransaction.otherMode || "");
       setEditCustomerName(editingTransaction.customerName || "");
       setEditCustomerMobile(editingTransaction.customerMobile || "");
@@ -544,8 +548,18 @@ export function POSScreen({
         ? Number(upiReturnAmount) 
         : (mode === "QR" && calculatedQrChange > 0 ? calculatedQrChange : undefined);
 
+      const isCash = mode === "CASH";
+      const displayAmt = isCash ? cashAmount : qrAmount;
+      const receivedAmt = isCash 
+        ? totalCash 
+        : (upiReceivedAmount !== "" ? Number(upiReceivedAmount) : qrAmount);
+
+      const calculatedRemainingBalance = receivedAmt < displayAmt 
+        ? displayAmt - receivedAmt 
+        : undefined;
+
       onUpdateTransactionDenominations(
-        mode === "CASH" ? denominations : {
+        isCash ? denominations : {
           500: 0,
           200: 0,
           100: 0,
@@ -558,10 +572,11 @@ export function POSScreen({
         },
         changeReturnedVia,
         customerUpiId,
-        parsedAmount
+        parsedAmount,
+        calculatedRemainingBalance
       );
     }
-  }, [denominations, mode, changeReturnedVia, customerUpiId, upiReturnAmount, upiReceivedAmount, qrAmount, onUpdateTransactionDenominations]);
+  }, [denominations, mode, changeReturnedVia, customerUpiId, upiReturnAmount, upiReceivedAmount, qrAmount, cashAmount, totalCash, onUpdateTransactionDenominations]);
 
   const getTxLines = (tx: Transaction): string[] => {
     const lines = [
@@ -664,7 +679,13 @@ export function POSScreen({
     }
     lines.push("--------------------------------");
     lines.push(`TOTAL: Rs ${tx.amount}`);
-    if (tx.remainingBalance && tx.remainingBalance > 0) {
+    if (tx.type === "EXPENSE") {
+      lines.push("--------------------------------");
+      const remBal = tx.remainingBalance || 0;
+      lines.push(`PAID AMOUNT: Rs ${tx.amount - remBal}`);
+      lines.push(`REMAINING BALANCE: Rs ${remBal}`);
+      lines.push("================================");
+    } else if (tx.remainingBalance && tx.remainingBalance > 0) {
       lines.push("--------------------------------");
       lines.push(`PAID AMOUNT: Rs ${tx.amount - tx.remainingBalance}`);
       lines.push(`BALANCE DUE: Rs ${tx.remainingBalance}`);
@@ -1814,7 +1835,11 @@ export function POSScreen({
                           <span className="font-mono font-bold text-gray-300 lg:text-base">
                             ₹{tx.amount}
                           </span>
-                          {tx.remainingBalance && tx.remainingBalance > 0 ? (
+                          {tx.type === "EXPENSE" ? (
+                            <span className="text-[8px] font-bold text-[#ff5a5f] bg-[#ff5a5f]/10 border border-[#ff5a5f]/20 px-1 py-0.5 rounded mt-0.5 animate-pulse">
+                              Rem Bal: ₹{tx.remainingBalance || 0}
+                            </span>
+                          ) : tx.remainingBalance && tx.remainingBalance > 0 ? (
                             <span className="text-[8px] font-bold text-amber-400 bg-amber-400/10 border border-amber-400/20 px-1 py-0.5 rounded mt-0.5 animate-pulse">
                               Bal Due: ₹{tx.remainingBalance}
                             </span>
@@ -2002,7 +2027,11 @@ export function POSScreen({
                           <span className="font-mono font-bold text-gray-300 lg:text-base">
                             ₹{tx.amount}
                           </span>
-                          {tx.remainingBalance && tx.remainingBalance > 0 ? (
+                          {tx.type === "EXPENSE" ? (
+                            <span className="text-[8px] font-bold text-[#ff5a5f] bg-[#ff5a5f]/10 border border-[#ff5a5f]/20 px-1 py-0.5 rounded mt-0.5 animate-pulse">
+                              Rem Bal: ₹{tx.remainingBalance || 0}
+                            </span>
+                          ) : tx.remainingBalance && tx.remainingBalance > 0 ? (
                             <span className="text-[8px] font-bold text-amber-400 bg-amber-400/10 border border-amber-400/20 px-1 py-0.5 rounded mt-0.5 animate-pulse">
                               Bal Due: ₹{tx.remainingBalance}
                             </span>
@@ -2949,8 +2978,8 @@ export function POSScreen({
                 </div>
               )}
 
-              {/* Remaining Balance (for Partial Payment / Udhaar) */}
-              {(editMethod === "PAYMENT" || editMethod === "UDHAAR" || editMethod === "PAYMENT REQUIRED") && (
+              {/* Remaining Balance (for Partial Payment / Udhaar / Expense) */}
+              {(editMethod === "PAYMENT" || editMethod === "UDHAAR" || editMethod === "PAYMENT REQUIRED" || editType === "EXPENSE") && (
                 <div>
                   <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block mb-1">
                     Remaining Balance / Balance Due (₹)
@@ -3060,6 +3089,25 @@ export function POSScreen({
                     alert("Please enter a valid amount");
                     return;
                   }
+                  let calculatedRemainingBalance: number | undefined = undefined;
+                  if (editMethod === "PAYMENT" || editMethod === "UDHAAR" || editMethod === "PAYMENT REQUIRED" || editType === "EXPENSE") {
+                    if (editRemainingBalance !== "" && !isNaN(Number(editRemainingBalance))) {
+                      calculatedRemainingBalance = Number(editRemainingBalance);
+                    } else {
+                      // Smart defaults
+                      if (editMethod === "UDHAAR" || editMethod === "PAYMENT REQUIRED") {
+                        calculatedRemainingBalance = Number(editAmount);
+                      } else if (editMethod === "PAYMENT") {
+                        const cash = editingTransaction.paymentDetails?.cash || 0;
+                        const upi = editingTransaction.paymentDetails?.upi || 0;
+                        const other = editingTransaction.paymentDetails?.other || 0;
+                        calculatedRemainingBalance = Math.max(0, Number(editAmount) - (cash + upi + other));
+                      } else if (editType === "EXPENSE") {
+                        calculatedRemainingBalance = 0; // standard paid expense
+                      }
+                    }
+                  }
+
                   const updatedTx: Partial<Transaction> = {
                     id: trimmedId,
                     type: editType,
@@ -3067,9 +3115,7 @@ export function POSScreen({
                     amount: Number(editAmount),
                     remarks: editRemarks || undefined,
                     otherMode: editMethod === "OTHER" ? (editOtherMode || undefined) : undefined,
-                    remainingBalance: (editMethod === "PAYMENT" || editMethod === "UDHAAR" || editMethod === "PAYMENT REQUIRED")
-                      ? (editRemainingBalance ? Number(editRemainingBalance) : undefined)
-                      : undefined,
+                    remainingBalance: calculatedRemainingBalance,
                     customerName: editCustomerName || undefined,
                     customerMobile: editCustomerMobile || undefined,
                     customerAddress: editCustomerAddress || undefined,

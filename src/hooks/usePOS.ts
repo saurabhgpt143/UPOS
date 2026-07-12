@@ -218,6 +218,7 @@ export function usePOS() {
         customerMobile: customerMobile || undefined,
         customerAddress: customerAddress || undefined,
         vehicleNumber: vehicleNumber || undefined,
+        remainingBalance: (method === "UDHAAR" || method === "PAYMENT REQUIRED") ? amt : undefined,
       };
 
       setTransactions((prev) => [newTx, ...prev]);
@@ -362,7 +363,8 @@ export function usePOS() {
     denoms: Record<number, number>,
     changeReturnedVia?: "CASH" | "UPI",
     customerUpiId?: string,
-    upiReturnAmount?: number
+    upiReturnAmount?: number,
+    remainingBalance?: number
   ) => {
     setTransactions((prev) => {
       if (prev.length === 0) return prev;
@@ -372,7 +374,8 @@ export function usePOS() {
         denominations: denoms,
         changeReturnedVia,
         customerUpiId,
-        upiReturnAmount
+        upiReturnAmount,
+        remainingBalance
       };
       return copy;
     });

@@ -188,7 +188,13 @@ export const generateReceiptImage = (tx: Transaction, qrDataUrl?: string, payeeN
   }
   lines.push("------------------------------");
   lines.push(`TOTAL: Rs ${tx.amount}`);
-  if (tx.remainingBalance && tx.remainingBalance > 0) {
+  if (tx.type === "EXPENSE") {
+    lines.push("------------------------------");
+    const remBal = tx.remainingBalance || 0;
+    lines.push(`PAID AMOUNT: Rs ${tx.amount - remBal}`);
+    lines.push(`REMAINING BALANCE: Rs ${remBal}`);
+    lines.push("==============================");
+  } else if (tx.remainingBalance && tx.remainingBalance > 0) {
     lines.push("------------------------------");
     lines.push(`PAID AMOUNT: Rs ${tx.amount - tx.remainingBalance}`);
     lines.push(`BALANCE DUE: Rs ${tx.remainingBalance}`);
