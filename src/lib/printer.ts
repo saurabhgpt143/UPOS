@@ -100,6 +100,11 @@ export const generateReceiptImage = (tx: Transaction, qrDataUrl?: string, payeeN
     `Date: ${new Date(tx.timestamp).toLocaleString()}`,
     `Type: ${tx.type}`,
   ];
+  if (tx.customerName) lines.push(`Cust: ${tx.customerName}`);
+  if (tx.customerMobile) lines.push(`Mob:  ${tx.customerMobile}`);
+  if (tx.customerAddress) lines.push(`Addr: ${tx.customerAddress}`);
+  if (tx.vehicleNumber) lines.push(`Veh:  ${tx.vehicleNumber}`);
+
   if (tx.method === "PAYMENT") {
     lines.push(`Mode: PAYMENT`);
     if (tx.paymentDetails?.cash) lines.push(`  Cash: Rs ${tx.paymentDetails.cash}`);

@@ -2811,7 +2811,7 @@ export function POSScreen({
 
               <button
                 onClick={async () => {
-                  const lines = previewPrintInfo.lines || [
+                  const lines = previewPrintInfo.lines || (previewPrintInfo.tx ? getTxLines(previewPrintInfo.tx) : [
                     "         UNIVERSE POS         ",
                     "--------------------------------",
                     `Date: ${new Date(previewPrintInfo.tx?.timestamp || Date.now()).toLocaleString()}`,
@@ -2823,7 +2823,7 @@ export function POSScreen({
                     "--------------------------------",
                     "           THANK YOU            ",
                     "        Mob: 9752556113         "
-                  ];
+                  ]);
                   let finalLines = [...lines];
                   if (previewPrintInfo.type === "tx" && previewPrintInfo.tx && previewPrintInfo.tx.method === "UPI") {
                     // Inject UPI metadata beautifully
