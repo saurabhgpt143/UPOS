@@ -143,6 +143,17 @@ export function POSScreen({
   const [editCustomerMobile, setEditCustomerMobile] = useState<string>("");
   const [editCustomerAddress, setEditCustomerAddress] = useState<string>("");
   const [editVehicleNumber, setEditVehicleNumber] = useState<string>("");
+  const [editDenominations, setEditDenominations] = useState<Record<number, number>>({
+    500: 0,
+    200: 0,
+    100: 0,
+    50: 0,
+    20: 0,
+    10: 0,
+    5: 0,
+    2: 0,
+    1: 0,
+  });
 
   useEffect(() => {
     if (editingTransaction) {
@@ -161,6 +172,11 @@ export function POSScreen({
       setEditCustomerMobile(editingTransaction.customerMobile || "");
       setEditCustomerAddress(editingTransaction.customerAddress || "");
       setEditVehicleNumber(editingTransaction.vehicleNumber || "");
+      setEditDenominations(
+        editingTransaction.denominations
+          ? { ...editingTransaction.denominations }
+          : { 500: 0, 200: 0, 100: 0, 50: 0, 20: 0, 10: 0, 5: 0, 2: 0, 1: 0 }
+      );
     }
   }, [editingTransaction]);
 
@@ -554,7 +570,10 @@ export function POSScreen({
         ? totalCash 
         : (upiReceivedAmount !== "" ? Number(upiReceivedAmount) : qrAmount);
 
-      const calculatedRemainingBalance = receivedAmt < displayAmt 
+      // If change was returned in CASH mode, remaining balance is undefined (0)
+      // Otherwise, we allow positive and negative balances (credit balance)
+      const changeReturned = parsedAmount || 0;
+      const calculatedRemainingBalance = (receivedAmt !== displayAmt && !changeReturned)
         ? displayAmt - receivedAmt 
         : undefined;
 
@@ -637,41 +656,47 @@ export function POSScreen({
       ? tx.upiReturnAmount
       : baseChangeAmount;
 
-    if (changeAmount > 0) {
+    if (changeAmount > 0 || changeAmount === 0) {
       lines.push("--------------------------------");
-      lines.push(`CHANGE DUE: Rs ${changeAmount}`);
-      if (tx.changeReturnedVia === "UPI") {
-        lines.push("RETURNED VIA UPI:");
-        if (tx.customerUpiId) {
-          lines.push(`  UPI: ${tx.customerUpiId}`);
+      lines.push(`CHANGE DUE: Rs ${changeAmount || "-"}`);
+      if (changeAmount > 0) {
+        if (tx.changeReturnedVia === "UPI") {
+          lines.push("RETURNED VIA UPI:");
+          if (tx.customerUpiId) {
+            lines.push(`  UPI: ${tx.customerUpiId}`);
+          } else {
+            lines.push("  UPI Status: Paid/Refunded");
+          }
         } else {
-          lines.push("  UPI Status: Paid/Refunded");
-        }
-      } else {
-        lines.push("RETURN DENOMINATIONS:");
-        if (returned.length > 0) {
-          returned
-            .sort(([a], [b]) => Number(b) - Number(a))
-            .forEach(([val, count]) => {
-              const numCount = Math.abs(count);
-              const left = `  Rs.${val} x ${numCount}`;
-              const right = `Rs.${Number(val) * numCount}`;
-              const spaces = Math.max(0, 32 - left.length - right.length);
-              lines.push(`${left}${" ".repeat(spaces)}${right}`);
-            });
-        } else {
-          let remainingChange = changeAmount;
-          const denoms = [500, 200, 100, 50, 20, 10, 5, 2, 1];
-          for (const d of denoms) {
-            if (remainingChange >= d) {
-              const count = Math.floor(remainingChange / d);
-              if (count > 0) {
-                const left = `  Rs.${d} x ${count}`;
-                const right = `Rs.${d * count}`;
-                const spaces = Math.max(0, 32 - left.length - right.length);
-                lines.push(`${left}${" ".repeat(spaces)}${right}`);
+          if (tx.type === "EXPENSE" && returned.length === 0) {
+            // Do not show return denominations when no return payment has been made (returned.length === 0) for EXPENSE transactions.
+          } else {
+            lines.push("RETURN DENOMINATIONS:");
+            if (returned.length > 0) {
+              returned
+                .sort(([a], [b]) => Number(b) - Number(a))
+                .forEach(([val, count]) => {
+                  const numCount = Math.abs(count);
+                  const left = `  Rs.${val} x ${numCount}`;
+                  const right = `Rs.${Number(val) * numCount}`;
+                  const spaces = Math.max(0, 32 - left.length - right.length);
+                  lines.push(`${left}${" ".repeat(spaces)}${right}`);
+                });
+            } else {
+              let remainingChange = changeAmount;
+              const denoms = [500, 200, 100, 50, 20, 10, 5, 2, 1];
+              for (const d of denoms) {
+                if (remainingChange >= d) {
+                  const count = Math.floor(remainingChange / d);
+                  if (count > 0) {
+                    const left = `  Rs.${d} x ${count}`;
+                    const right = `Rs.${d * count}`;
+                    const spaces = Math.max(0, 32 - left.length - right.length);
+                    lines.push(`${left}${" ".repeat(spaces)}${right}`);
+                  }
+                  remainingChange -= count * d;
+                }
               }
-              remainingChange -= count * d;
             }
           }
         }
@@ -683,15 +708,14 @@ export function POSScreen({
       lines.push("--------------------------------");
       const remBal = tx.remainingBalance || 0;
       lines.push(`PAID AMOUNT: Rs ${tx.amount - remBal}`);
-      lines.push(`REMAINING BALANCE: Rs ${remBal}`);
-      lines.push("================================");
-    } else if (tx.remainingBalance && tx.remainingBalance > 0) {
-      lines.push("--------------------------------");
-      lines.push(`PAID AMOUNT: Rs ${tx.amount - tx.remainingBalance}`);
-      lines.push(`BALANCE DUE: Rs ${tx.remainingBalance}`);
+      lines.push(`REMAINING BALANCE: Rs ${remBal || "-"}`);
       lines.push("================================");
     } else {
       lines.push("--------------------------------");
+      const remBal = tx.remainingBalance || 0;
+      lines.push(`PAID AMOUNT: Rs ${tx.amount - remBal}`);
+      lines.push(`BALANCE DUE: Rs ${tx.remainingBalance !== undefined && tx.remainingBalance !== 0 ? tx.remainingBalance : "-"}`);
+      lines.push("================================");
     }
     lines.push("           THANK YOU            ");
     lines.push("        Mob: 9752556113         ");
@@ -1515,7 +1539,7 @@ export function POSScreen({
                     )}
                   >
                     {totalCash >= displayCashAmount
-                      ? `₹${totalCash - displayCashAmount}`
+                      ? (totalCash === displayCashAmount ? "-" : `₹${totalCash - displayCashAmount}`)
                       : `Need ₹${displayCashAmount - totalCash}`}
                   </span>
                 </div>
@@ -1732,9 +1756,12 @@ export function POSScreen({
                       >
                         {tx.type} ({tx.method})
                       </span>
-                      {tx.remainingBalance && tx.remainingBalance > 0 ? (
-                        <span className="bg-amber-500 text-black text-[8px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wide">
-                          Partial
+                      {tx.remainingBalance !== undefined && tx.remainingBalance !== 0 ? (
+                        <span className={cn(
+                          "text-black text-[8px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wide",
+                          tx.remainingBalance > 0 ? "bg-amber-500" : "bg-blue-400"
+                        )}>
+                          {tx.remainingBalance > 0 ? "Partial" : "Credit"}
                         </span>
                       ) : null}
                     </div>
@@ -1837,13 +1864,13 @@ export function POSScreen({
                           </span>
                           {tx.type === "EXPENSE" ? (
                             <span className="text-[8px] font-bold text-[#ff5a5f] bg-[#ff5a5f]/10 border border-[#ff5a5f]/20 px-1 py-0.5 rounded mt-0.5 animate-pulse">
-                              Rem Bal: ₹{tx.remainingBalance || 0}
+                              Rem Bal: {tx.remainingBalance ? `₹${tx.remainingBalance}` : "-"}
                             </span>
-                          ) : tx.remainingBalance && tx.remainingBalance > 0 ? (
-                            <span className="text-[8px] font-bold text-amber-400 bg-amber-400/10 border border-amber-400/20 px-1 py-0.5 rounded mt-0.5 animate-pulse">
-                              Bal Due: ₹{tx.remainingBalance}
+                          ) : (
+                            <span className="text-[8px] font-bold text-amber-400 bg-amber-400/10 border border-amber-400/20 px-1 py-0.5 rounded mt-0.5">
+                              Bal Due: {tx.remainingBalance !== undefined && tx.remainingBalance !== 0 ? `₹${tx.remainingBalance}` : "-"}
                             </span>
-                          ) : null}
+                          )}
                         </div>
                         <button
                           onClick={() => setPreviewPrintInfo({ type: "tx", tx })}
@@ -1918,9 +1945,12 @@ export function POSScreen({
                       >
                         {tx.type} ({tx.method})
                       </span>
-                      {tx.remainingBalance && tx.remainingBalance > 0 ? (
-                        <span className="bg-amber-500 text-black text-[8px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wide">
-                          Partial
+                      {tx.remainingBalance !== undefined && tx.remainingBalance !== 0 ? (
+                        <span className={cn(
+                          "text-black text-[8px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wide",
+                          tx.remainingBalance > 0 ? "bg-amber-500" : "bg-blue-400"
+                        )}>
+                          {tx.remainingBalance > 0 ? "Partial" : "Credit"}
                         </span>
                       ) : null}
                       <span className="text-[8px] text-gray-500 font-mono">
@@ -2029,13 +2059,13 @@ export function POSScreen({
                           </span>
                           {tx.type === "EXPENSE" ? (
                             <span className="text-[8px] font-bold text-[#ff5a5f] bg-[#ff5a5f]/10 border border-[#ff5a5f]/20 px-1 py-0.5 rounded mt-0.5 animate-pulse">
-                              Rem Bal: ₹{tx.remainingBalance || 0}
+                              Rem Bal: {tx.remainingBalance ? `₹${tx.remainingBalance}` : "-"}
                             </span>
-                          ) : tx.remainingBalance && tx.remainingBalance > 0 ? (
-                            <span className="text-[8px] font-bold text-amber-400 bg-amber-400/10 border border-amber-400/20 px-1 py-0.5 rounded mt-0.5 animate-pulse">
-                              Bal Due: ₹{tx.remainingBalance}
+                          ) : (
+                            <span className="text-[8px] font-bold text-amber-400 bg-amber-400/10 border border-amber-400/20 px-1 py-0.5 rounded mt-0.5">
+                              Bal Due: {tx.remainingBalance !== undefined && tx.remainingBalance !== 0 ? `₹${tx.remainingBalance}` : "-"}
                             </span>
-                          ) : null}
+                          )}
                         </div>
                         <button
                           onClick={() => setPreviewPrintInfo({ type: "tx", tx })}
@@ -2317,23 +2347,26 @@ export function POSScreen({
                   <button
                     onClick={() => {
                       const allocated = (Number(paymentCash) || 0) + (Number(paymentUpi) || 0) + (Number(paymentOther) || 0);
-                      if (allocated === paymentBillAmount) {
+                      if (allocated >= paymentBillAmount) {
                         onConfirmPayment({
                           cash: Number(paymentCash) || 0,
                           upi: Number(paymentUpi) || 0,
                           other: Number(paymentOther) || 0,
-                        }, otherModeInput || undefined, otherRemarksInput || undefined, denominations, 0);
+                        }, otherModeInput || undefined, otherRemarksInput || undefined, denominations, paymentBillAmount - allocated);
                       }
                     }}
-                    disabled={((Number(paymentCash) || 0) + (Number(paymentUpi) || 0) + (Number(paymentOther) || 0)) !== paymentBillAmount}
+                    disabled={((Number(paymentCash) || 0) + (Number(paymentUpi) || 0) + (Number(paymentOther) || 0)) < paymentBillAmount}
                     className={cn(
                       "w-full py-2 rounded text-[11px] font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer",
-                      ((Number(paymentCash) || 0) + (Number(paymentUpi) || 0) + (Number(paymentOther) || 0)) === paymentBillAmount
+                      ((Number(paymentCash) || 0) + (Number(paymentUpi) || 0) + (Number(paymentOther) || 0)) >= paymentBillAmount
                         ? "bg-[#3cc366] text-black hover:bg-[#32a454] shadow"
                         : "bg-gray-800 text-gray-500 cursor-not-allowed border border-gray-700/50"
                     )}
                   >
-                    Confirm Full Payment
+                    {((Number(paymentCash) || 0) + (Number(paymentUpi) || 0) + (Number(paymentOther) || 0)) > paymentBillAmount
+                      ? `Confirm Overpayment (Credit: ₹${((Number(paymentCash) || 0) + (Number(paymentUpi) || 0) + (Number(paymentOther) || 0)) - paymentBillAmount})`
+                      : "Confirm Full Payment"
+                    }
                   </button>
 
                   {(() => {
@@ -3047,6 +3080,92 @@ export function POSScreen({
                 />
               </div>
 
+              {/* Cash Denominations (only visible if CASH is selected) */}
+              {editMethod === "CASH" && (
+                <div className="border border-[#2c2c2c] rounded-lg p-3 bg-[#161616] flex flex-col gap-2">
+                  <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block">
+                    Alter Cash Denominations
+                  </label>
+                  <div className="grid grid-cols-3 gap-2">
+                    {([500, 200, 100, 50, 20, 10, 5, 2, 1] as const).map((val) => (
+                      <div
+                        key={val}
+                        className="flex flex-col gap-1 items-center bg-[#1e1e1e] border border-[#2c2c2c] rounded p-1.5"
+                      >
+                        <div className="flex items-center gap-1">
+                          {val >= 5 ? (
+                            <div className={cn(
+                              "w-6 h-3.5 flex items-center justify-center text-[6px] font-bold shadow-sm border border-black/20 rounded-[2px]",
+                              {
+                                500: "bg-[#7a817b] text-white",
+                                200: "bg-[#f0a92f] text-black",
+                                100: "bg-[#7b6b8f] text-white",
+                                50: "bg-[#5dbcd2] text-black",
+                                20: "bg-[#b0c24a] text-black",
+                                10: "bg-[#764b36] text-white",
+                                5: "bg-[#5a9354] text-white",
+                              }[val]
+                            )}>
+                              {val}
+                            </div>
+                          ) : (
+                            <div className="bg-[#bcc6cc] text-black rounded-full w-3.5 h-3.5 flex items-center justify-center text-[6px] font-bold shadow-sm border border-black/20">
+                              {val}
+                            </div>
+                          )}
+                          <span className="text-[9px] font-bold text-gray-300">₹{val}</span>
+                        </div>
+                        <div className="flex items-center gap-1 mt-1">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditDenominations((prev) => ({
+                                ...prev,
+                                [val]: Math.max(0, (prev[val] || 0) - 1),
+                              }));
+                            }}
+                            className="bg-[#2c2c2c] rounded text-white w-4 h-4 flex items-center justify-center text-[9px] active:bg-[#333] cursor-pointer"
+                          >
+                            -
+                          </button>
+                          <input
+                            type="number"
+                            value={editDenominations[val] === 0 ? "" : editDenominations[val]}
+                            onChange={(e) => {
+                              const newCount = parseInt(e.target.value) || 0;
+                              setEditDenominations((prev) => ({
+                                ...prev,
+                                [val]: Math.max(0, newCount),
+                              }));
+                            }}
+                            className="text-[9px] font-mono text-white bg-transparent w-6 text-center outline-none border-b border-[#333] focus:border-blue-500 hide-spin-button"
+                            placeholder="0"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditDenominations((prev) => ({
+                                ...prev,
+                                [val]: (prev[val] || 0) + 1,
+                              }));
+                            }}
+                            className="bg-blue-600 rounded text-white w-4 h-4 flex items-center justify-center text-[9px] active:bg-blue-700 cursor-pointer"
+                          >
+                            +
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="flex justify-between items-center mt-1 pt-2 border-t border-[#222]">
+                    <span className="text-[10px] font-bold text-gray-400">Total Denominations:</span>
+                    <span className="text-[11px] font-mono font-bold text-blue-400">
+                      ₹{Object.keys(editDenominations).reduce((acc, val) => acc + Number(val) * editDenominations[Number(val)], 0)}
+                    </span>
+                  </div>
+                </div>
+              )}
+
               {/* Remarks / Note */}
               <div>
                 <label className="text-[10px] font-bold text-gray-400 uppercase tracking-wider block mb-1">
@@ -3101,7 +3220,8 @@ export function POSScreen({
                         const cash = editingTransaction.paymentDetails?.cash || 0;
                         const upi = editingTransaction.paymentDetails?.upi || 0;
                         const other = editingTransaction.paymentDetails?.other || 0;
-                        calculatedRemainingBalance = Math.max(0, Number(editAmount) - (cash + upi + other));
+                        const diff = Number(editAmount) - (cash + upi + other);
+                        calculatedRemainingBalance = diff !== 0 ? diff : undefined;
                       } else if (editType === "EXPENSE") {
                         calculatedRemainingBalance = 0; // standard paid expense
                       }
@@ -3120,6 +3240,7 @@ export function POSScreen({
                     customerMobile: editCustomerMobile || undefined,
                     customerAddress: editCustomerAddress || undefined,
                     vehicleNumber: editVehicleNumber || undefined,
+                    denominations: editMethod === "CASH" ? editDenominations : undefined,
                   };
                   onUpdateTransaction(editingTransaction.id, updatedTx);
                   setEditingTransaction(null);
