@@ -668,36 +668,17 @@ export function POSScreen({
             lines.push("  UPI Status: Paid/Refunded");
           }
         } else {
-          if (tx.type === "EXPENSE" && returned.length === 0) {
-            // Do not show return denominations when no return payment has been made (returned.length === 0) for EXPENSE transactions.
-          } else {
+          if (returned.length > 0) {
             lines.push("RETURN DENOMINATIONS:");
-            if (returned.length > 0) {
-              returned
-                .sort(([a], [b]) => Number(b) - Number(a))
-                .forEach(([val, count]) => {
-                  const numCount = Math.abs(count);
-                  const left = `  Rs.${val} x ${numCount}`;
-                  const right = `Rs.${Number(val) * numCount}`;
-                  const spaces = Math.max(0, 32 - left.length - right.length);
-                  lines.push(`${left}${" ".repeat(spaces)}${right}`);
-                });
-            } else {
-              let remainingChange = changeAmount;
-              const denoms = [500, 200, 100, 50, 20, 10, 5, 2, 1];
-              for (const d of denoms) {
-                if (remainingChange >= d) {
-                  const count = Math.floor(remainingChange / d);
-                  if (count > 0) {
-                    const left = `  Rs.${d} x ${count}`;
-                    const right = `Rs.${d * count}`;
-                    const spaces = Math.max(0, 32 - left.length - right.length);
-                    lines.push(`${left}${" ".repeat(spaces)}${right}`);
-                  }
-                  remainingChange -= count * d;
-                }
-              }
-            }
+            returned
+              .sort(([a], [b]) => Number(b) - Number(a))
+              .forEach(([val, count]) => {
+                const numCount = Math.abs(count);
+                const left = `  Rs.${val} x ${numCount}`;
+                const right = `Rs.${Number(val) * numCount}`;
+                const spaces = Math.max(0, 32 - left.length - right.length);
+                lines.push(`${left}${" ".repeat(spaces)}${right}`);
+              });
           }
         }
       }
@@ -1403,14 +1384,12 @@ export function POSScreen({
                               textLines.push("  UPI Status: Paid/Refunded");
                             }
                           } else {
-                            textLines.push("         RETURN CHANGE          ");
-                            let remaining = totalCash - displayCashAmount;
-                            const denoms = [500, 200, 100, 50, 20, 10, 5, 2, 1];
-                            for (const d of denoms) {
-                              if (remaining >= d) {
-                                const count = Math.floor(remaining / d);
-                                const left = `-Rs.${d} x ${count}`;
-                                const right = `-Rs.${d * count}`;
+                            if (returned.length > 0) {
+                              textLines.push("         RETURN CHANGE          ");
+                              returned.forEach(([val, count]: [string, any]) => {
+                                const numCount = Math.abs(count as number);
+                                const left = `-Rs.${val} x ${numCount}`;
+                                const right = `-Rs.${Number(val) * numCount}`;
                                 const spaces = Math.max(
                                   0,
                                   32 - left.length - right.length,
@@ -1418,8 +1397,7 @@ export function POSScreen({
                                 textLines.push(
                                   `${left}${" ".repeat(spaces)}${right}`,
                                 );
-                                remaining -= count * d;
-                              }
+                              });
                             }
                           }
                         }
@@ -3121,7 +3099,7 @@ export function POSScreen({
                             onClick={() => {
                               setEditDenominations((prev) => ({
                                 ...prev,
-                                [val]: Math.max(0, (prev[val] || 0) - 1),
+                                [val]: (prev[val] || 0) - 1,
                               }));
                             }}
                             className="bg-[#2c2c2c] rounded text-white w-4 h-4 flex items-center justify-center text-[9px] active:bg-[#333] cursor-pointer"
@@ -3135,7 +3113,7 @@ export function POSScreen({
                               const newCount = parseInt(e.target.value) || 0;
                               setEditDenominations((prev) => ({
                                 ...prev,
-                                [val]: Math.max(0, newCount),
+                                [val]: newCount,
                               }));
                             }}
                             className="text-[9px] font-mono text-white bg-transparent w-6 text-center outline-none border-b border-[#333] focus:border-blue-500 hide-spin-button"

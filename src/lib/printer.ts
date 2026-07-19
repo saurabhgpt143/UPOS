@@ -164,34 +164,15 @@ export const generateReceiptImage = (tx: Transaction, qrDataUrl?: string, payeeN
             lines.push("  UPI Status: Paid/Refunded");
           }
         } else {
-          if (tx.type === "EXPENSE" && returned.length === 0) {
-            // Do not show return denominations when no return payment has been made (returned.length === 0) for EXPENSE transactions.
-          } else {
+          if (returned.length > 0) {
             lines.push("RETURN DENOMINATIONS:");
-            if (returned.length > 0) {
-              returned.forEach(([val, count]) => {
-                const numCount = Math.abs(count);
-                const left = `  Rs.${val} x ${numCount}`;
-                const right = `Rs.${Number(val) * numCount}`;
-                const spaces = Math.max(0, 30 - left.length - right.length);
-                lines.push(`${left}${" ".repeat(spaces)}${right}`);
-              });
-            } else {
-              let remainingChange = changeAmount;
-              const denoms = [500, 200, 100, 50, 20, 10, 5, 2, 1];
-              for (const d of denoms) {
-                if (remainingChange >= d) {
-                  const count = Math.floor(remainingChange / d);
-                  if (count > 0) {
-                    const left = `  Rs.${d} x ${count}`;
-                    const right = `Rs.${d * count}`;
-                    const spaces = Math.max(0, 30 - left.length - right.length);
-                    lines.push(`${left}${" ".repeat(spaces)}${right}`);
-                  }
-                  remainingChange -= count * d;
-                }
-              }
-            }
+            returned.forEach(([val, count]) => {
+              const numCount = Math.abs(count);
+              const left = `  Rs.${val} x ${numCount}`;
+              const right = `Rs.${Number(val) * numCount}`;
+              const spaces = Math.max(0, 30 - left.length - right.length);
+              lines.push(`${left}${" ".repeat(spaces)}${right}`);
+            });
           }
         }
       }
